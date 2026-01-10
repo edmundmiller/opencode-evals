@@ -91,6 +91,8 @@ async function runCommand(cmd: string, cwd: string): Promise<void> {
       ...process.env,
       CI: "true",
       GIT_TERMINAL_PROMPT: "0",
+      // Use minimal jj config to avoid user template incompatibilities
+      JJ_CONFIG: "/dev/null",
     },
   });
 
