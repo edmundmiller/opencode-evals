@@ -1,0 +1,46 @@
+{
+  "name": "llm-judge-example",
+  "description": "Demonstrates LLM-as-judge evaluator for subjective criteria",
+  "dataset": {
+    "name": "code-quality",
+    "examples": [
+      {
+        "id": "fibonacci",
+        "inputs": {
+          "query": "Create a TypeScript file called math.ts with a recursive fibonacci function",
+          "files": {}
+        }
+      }
+    ]
+  },
+  "variants": {
+    "default": {
+      "plugins": []
+    }
+  },
+  "setup": {
+    "template": "empty"
+  },
+  "evaluators": [
+    {
+      "type": "code",
+      "assertions": [
+        { "type": "file_exists", "path": "math.ts" }
+      ]
+    },
+    {
+      "type": "llm-judge",
+      "criteria": [
+        "A fibonacci function was created",
+        "The function uses recursion (not iteration)",
+        "The function has proper TypeScript types"
+      ],
+      "reference_free": true
+    }
+  ],
+  "judge_model": "claude-3-haiku-20240307",
+  "error_handling": {
+    "on_error": "continue",
+    "timeout_ms": 60000
+  }
+}

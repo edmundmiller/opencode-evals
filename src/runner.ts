@@ -12,7 +12,7 @@ import type {
 } from "./types.js";
 import { createSandbox, readDirectoryFiles, getFixturesDir } from "./sandbox.js";
 import { runOpenCode } from "./capture.js";
-import { runCodeEvaluator } from "./evaluators/index.js";
+import { runCodeEvaluator, runLLMJudge } from "./evaluators/index.js";
 
 /**
  * Run an eval configuration and return experiment results.
@@ -185,7 +185,20 @@ async function runExample(
         feedback.push(...codeResults);
       }
 
-      // TODO: LLM-judge evaluator (Phase 4)
+      if (evaluator.type === "llm-judge" && evaluator.criteria) {
+        const judgeResults = await runLLMJudge(
+          {
+            criteria: evaluator.criteria,
+            reference_free: evaluator.reference_free,
+            model: config.judge_model,
+          },
+          example.inputs.query,
+          captureResult.tool_calls,
+          final_files,
+          example.reference_outputs
+        );
+        feedback.push(...judgeResults);
+      }
     }
 
     const passed = feedback.every((f) => f.passed);
