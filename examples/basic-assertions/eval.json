@@ -1,0 +1,44 @@
+{
+  "name": "basic-assertions",
+  "description": "Demonstrates code evaluator with file assertions",
+  "dataset": {
+    "name": "simple-edits",
+    "examples": [
+      {
+        "id": "create-file",
+        "inputs": {
+          "query": "Create a file called hello.txt with the content 'Hello, World!'"
+        }
+      },
+      {
+        "id": "add-function",
+        "inputs": {
+          "query": "Add a greet(name: string) function to src/app.ts that returns 'Hello, {name}!'",
+          "files": {
+            "src/app.ts": "export const VERSION = '1.0.0';\n"
+          }
+        }
+      }
+    ]
+  },
+  "variants": {
+    "default": {
+      "plugins": []
+    }
+  },
+  "setup": {
+    "template": "empty"
+  },
+  "evaluators": [
+    {
+      "type": "code",
+      "assertions": [
+        { "type": "exit_code", "expected": 0 }
+      ]
+    }
+  ],
+  "error_handling": {
+    "on_error": "continue",
+    "timeout_ms": 60000
+  }
+}

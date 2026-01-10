@@ -1,0 +1,7 @@
+{
+  "name": "simple-ts-fixture",
+  "type": "module",
+  "scripts": {
+    "build": "tsc"
+  }
+}
