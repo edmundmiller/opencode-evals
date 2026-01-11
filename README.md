@@ -97,6 +97,87 @@ opencode-eval report results.json --format markdown
 }
 ```
 
+## VCS Setup
+
+For evals that test git/version control workflows, use the `vcs` configuration to set up isolated repositories with commits, branches, and remotes.
+
+### Basic Git Setup
+
+```jsonc
+{
+  "setup": {
+    "vcs": {
+      "git": {
+        "commits": [
+          { "message": "Initial commit", "files": { "README.md": "# Hello" } }
+        ]
+      }
+    }
+  }
+}
+```
+
+### Full Git Configuration
+
+```jsonc
+{
+  "setup": {
+    "vcs": {
+      "git": {
+        "defaultBranch": "main",
+        "authorName": "Test User",
+        "authorEmail": "test@example.com",
+        "commits": [
+          { "message": "Initial commit", "files": { "README.md": "# Project" } },
+          { "message": "Add feature", "files": { "src/feature.ts": "export {}" } }
+        ],
+        "branches": ["develop", "feature/auth"],
+        "checkout": "develop",
+        "remote": {
+          "name": "origin",
+          "branches": ["main"]
+        },
+        "uncommitted": {
+          "files": { "wip.txt": "work in progress" },
+          "staged": true
+        }
+      }
+    }
+  }
+}
+```
+
+### VCS Helper Functions
+
+For advanced scenarios, import helper functions directly:
+
+```typescript
+import {
+  initGitRepo,
+  setupGitRemote,
+  createCommitHistory,
+  setupGitBranches,
+  createUncommittedChanges,
+  createMergeConflict,
+  getGitStatus,
+  getGitLog,
+} from "opencode-evals/vcs-helpers";
+```
+
+### Git Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `init` | boolean | Initialize git repo (auto-detected if other options set) |
+| `defaultBranch` | string | Default branch name (default: "main") |
+| `authorName` | string | Commit author name (default: "Test User") |
+| `authorEmail` | string | Commit author email (default: "test@example.com") |
+| `commits` | array | Commits to create in order |
+| `branches` | string[] | Branches to create |
+| `checkout` | string | Branch to checkout after setup |
+| `remote` | object | Remote repository configuration |
+| `uncommitted` | object | Uncommitted changes to create |
+
 ## Assertion Types
 
 | Type | Description |

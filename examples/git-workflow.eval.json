@@ -1,0 +1,68 @@
+{
+  "$schema": "../schemas/eval.schema.json",
+  "name": "git-workflow-eval",
+  "description": "Example eval demonstrating VCS setup patterns for git-based scenarios",
+  "setup": {
+    "template": "simple-ts",
+    "files": {
+      "src/index.ts": "export const VERSION = '1.0.0';"
+    },
+    "vcs": {
+      "git": {
+        "defaultBranch": "main",
+        "authorName": "Test User",
+        "authorEmail": "test@example.com",
+        "commits": [
+          {
+            "message": "Initial commit",
+            "files": {
+              "README.md": "# My Project\n\nA sample project for testing."
+            }
+          },
+          {
+            "message": "Add package.json",
+            "files": {
+              "package.json": "{\"name\": \"my-project\", \"version\": \"1.0.0\"}"
+            }
+          }
+        ],
+        "remote": {
+          "name": "origin",
+          "branches": ["main"]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "create-feature-branch",
+      "inputs": {
+        "query": "Create a new feature branch called 'feature/add-logging' and add a simple logger utility"
+      },
+      "assertions": [
+        {
+          "type": "tool_called",
+          "tool": "bash",
+          "args_contain": "checkout"
+        },
+        {
+          "type": "file_exists",
+          "path": "src/logger.ts"
+        }
+      ]
+    },
+    {
+      "name": "commit-changes",
+      "inputs": {
+        "query": "Stage and commit the changes with a descriptive message"
+      },
+      "assertions": [
+        {
+          "type": "tool_called",
+          "tool": "bash",
+          "args_contain": "commit"
+        }
+      ]
+    }
+  ]
+}
