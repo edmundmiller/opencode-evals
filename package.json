@@ -10,10 +10,11 @@
   "exports": {
     ".": "./dist/index.js",
     "./types": "./dist/types.js",
-    "./vcs-helpers": "./dist/vcs-helpers.js"
+    "./vcs-helpers": "./dist/vcs-helpers.js",
+    "./jj-helpers": "./dist/jj-helpers.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts src/vcs-helpers.ts --outdir dist --target node",
+    "build": "bun build src/index.ts src/vcs-helpers.ts src/jj-helpers.ts --outdir dist --target node",
     "dev": "bun run src/index.ts",
     "test": "bun test",
     "eval": "bun run src/index.ts run examples/"

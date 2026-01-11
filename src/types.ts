@@ -57,11 +57,11 @@ export interface SetupConfig {
 
 /**
  * Configuration for setting up VCS state in sandboxes.
- * Supports git (and jj in the future).
+ * Supports git and jj (Jujutsu).
  */
 export interface VcsSetup {
   git?: GitSetup;
-  // Future: jj?: JjSetup;
+  jj?: JjSetup;
 }
 
 /**
@@ -117,6 +117,78 @@ export interface GitCommitSetup {
   authorName?: string;
   /** Author email override */
   authorEmail?: string;
+}
+
+// ============================================================================
+// JJ (Jujutsu) Setup Configuration
+// ============================================================================
+
+/**
+ * JJ repository setup configuration.
+ * JJ is a Git-compatible VCS with features like automatic change tracking.
+ */
+export interface JjSetup {
+  /** Initialize as a jj repository (default: true if any jj options specified) */
+  init?: boolean;
+  /** Author name for changes (default: "Test User") */
+  authorName?: string;
+  /** Author email for changes (default: "test@example.com") */
+  authorEmail?: string;
+  /** Remote repository configuration */
+  remote?: JjRemoteSetup;
+  /** Changes to create in order */
+  changes?: JjChangeSetup[];
+  /** Bookmarks to create */
+  bookmarks?: string[];
+  /** Whether to start a new empty change after setup (default: true) */
+  newChange?: boolean;
+  /** Working copy changes to create (after all changes/bookmarks) */
+  workingCopy?: {
+    files: Record<string, string>;
+    description?: string;
+  };
+  /** Create an orphan scenario for testing orphan recovery */
+  orphan?: JjOrphanSetup;
+}
+
+/**
+ * JJ remote repository setup.
+ */
+export interface JjRemoteSetup {
+  /** Remote name (default: "origin") */
+  name?: string;
+  /** Create as bare repository (default: true) */
+  bare?: boolean;
+  /** Bookmarks to push to the remote */
+  bookmarks?: string[];
+}
+
+/**
+ * JJ change setup.
+ */
+export interface JjChangeSetup {
+  /** Change description */
+  description: string;
+  /** Files to create/modify in this change */
+  files?: Record<string, string>;
+  /** Bookmark to set on this change */
+  bookmark?: string;
+  /** Author name override */
+  authorName?: string;
+  /** Author email override */
+  authorEmail?: string;
+}
+
+/**
+ * JJ orphan scenario setup for testing orphan recovery.
+ */
+export interface JjOrphanSetup {
+  /** Description for the orphaned change */
+  description: string;
+  /** Files in the orphaned change */
+  files: Record<string, string>;
+  /** Remote bookmark to reset to (default: "main@origin") */
+  resetTo?: string;
 }
 
 export interface ErrorHandlingConfig {

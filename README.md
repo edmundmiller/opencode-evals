@@ -178,6 +178,110 @@ import {
 | `remote` | object | Remote repository configuration |
 | `uncommitted` | object | Uncommitted changes to create |
 
+## JJ (Jujutsu) Setup
+
+For evals that test jj workflows, use the `vcs.jj` configuration to set up isolated jj repositories.
+
+### Basic JJ Setup
+
+```jsonc
+{
+  "setup": {
+    "vcs": {
+      "jj": {
+        "changes": [
+          { "description": "Initial commit", "files": { "README.md": "# Hello" } }
+        ]
+      }
+    }
+  }
+}
+```
+
+### Full JJ Configuration
+
+```jsonc
+{
+  "setup": {
+    "vcs": {
+      "jj": {
+        "authorName": "Test User",
+        "authorEmail": "test@example.com",
+        "changes": [
+          { "description": "Initial commit", "files": { "README.md": "# Project" }, "bookmark": "main" },
+          { "description": "Add feature", "files": { "src/feature.ts": "export {}" } }
+        ],
+        "bookmarks": ["develop"],
+        "remote": {
+          "name": "origin",
+          "bookmarks": ["main"]
+        },
+        "workingCopy": {
+          "files": { "wip.txt": "work in progress" },
+          "description": "WIP: Adding feature"
+        }
+      }
+    }
+  }
+}
+```
+
+### Orphan Recovery Scenario
+
+For testing jj orphan recovery workflows:
+
+```jsonc
+{
+  "setup": {
+    "vcs": {
+      "jj": {
+        "changes": [
+          { "description": "Initial commit", "files": { "README.md": "# Test" }, "bookmark": "main" }
+        ],
+        "remote": { "name": "origin", "bookmarks": ["main"] },
+        "orphan": {
+          "description": "Important work that got orphaned",
+          "files": { "src/important.ts": "// Important work" },
+          "resetTo": "main@origin"
+        }
+      }
+    }
+  }
+}
+```
+
+### JJ Helper Functions
+
+For advanced scenarios, import helper functions directly:
+
+```typescript
+import {
+  initJjRepo,
+  setupJjRemote,
+  createJjChanges,
+  setupJjBookmarks,
+  createJjWorkingCopyChanges,
+  createOrphanScenario,
+  getJjStatus,
+  getJjLog,
+  hasOrphanedCommits,
+} from "opencode-evals/jj-helpers";
+```
+
+### JJ Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `init` | boolean | Initialize jj repo (auto-detected if other options set) |
+| `authorName` | string | Change author name (default: "Test User") |
+| `authorEmail` | string | Change author email (default: "test@example.com") |
+| `changes` | array | Changes to create in order |
+| `bookmarks` | string[] | Bookmarks to create |
+| `newChange` | boolean | Start a new empty change after setup |
+| `remote` | object | Remote repository configuration |
+| `workingCopy` | object | Working copy changes to create |
+| `orphan` | object | Orphan scenario configuration |
+
 ## Assertion Types
 
 | Type | Description |

@@ -1,7 +1,7 @@
 import { mkdtemp, rm, cp, mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import type { SetupConfig, GitSetup } from "./types.js";
+import type { SetupConfig, GitSetup, JjSetup } from "./types.js";
 import {
   GIT_ISOLATED_ENV,
   initGitRepo,
@@ -10,6 +10,15 @@ import {
   setupGitBranches,
   createUncommittedChanges,
 } from "./vcs-helpers.js";
+import {
+  JJ_ISOLATED_ENV,
+  initJjRepo,
+  setupJjRemote,
+  createJjChanges,
+  setupJjBookmarks,
+  createJjWorkingCopyChanges,
+  createOrphanScenario,
+} from "./jj-helpers.js";
 
 export interface Sandbox {
   path: string;
@@ -51,6 +60,9 @@ export async function createSandbox(
     // Set up VCS if configured
     if (setup?.vcs?.git) {
       await setupGit(path, setup.vcs.git);
+    }
+    if (setup?.vcs?.jj) {
+      await setupJj(path, setup.vcs.jj);
     }
 
     // Run setup commands (variant-aware)
@@ -157,13 +169,89 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 
 /**
  * Environment variables for isolated sandbox command execution.
- * Extends GIT_ISOLATED_ENV with jj-specific settings.
+ * Combines git and jj isolation settings.
  */
 export const SANDBOX_ISOLATED_ENV = {
   ...GIT_ISOLATED_ENV,
-  // Use minimal jj config to avoid user template incompatibilities
-  JJ_CONFIG: "/dev/null",
+  ...JJ_ISOLATED_ENV,
 } as const;
+
+/**
+ * Set up jj repository based on configuration.
+ */
+async function setupJj(sandboxPath: string, config: JjSetup): Promise<void> {
+  // Determine if we should init - explicit config or implicit from other options
+  const shouldInit =
+    config.init ??
+    Boolean(
+      config.authorName ||
+        config.authorEmail ||
+        config.changes?.length ||
+        config.bookmarks?.length ||
+        config.remote ||
+        config.workingCopy ||
+        config.orphan
+    );
+
+  if (shouldInit) {
+    await initJjRepo(sandboxPath, {
+      authorName: config.authorName,
+      authorEmail: config.authorEmail,
+    });
+  }
+
+  // Create changes in order
+  if (config.changes?.length) {
+    await createJjChanges(
+      sandboxPath,
+      config.changes.map((c) => ({
+        description: c.description,
+        files: c.files,
+        bookmark: c.bookmark,
+        authorName: c.authorName ?? config.authorName,
+        authorEmail: c.authorEmail ?? config.authorEmail,
+      }))
+    );
+  }
+
+  // Create bookmarks
+  if (config.bookmarks?.length) {
+    await setupJjBookmarks(sandboxPath, config.bookmarks, {
+      newChange: false, // Don't create new change yet, we do it at the end
+    });
+  }
+
+  // Set up remote
+  if (config.remote) {
+    await setupJjRemote(sandboxPath, {
+      remoteName: config.remote.name,
+      bare: config.remote.bare,
+      bookmarks: config.remote.bookmarks,
+    });
+  }
+
+  // Create orphan scenario if configured
+  if (config.orphan) {
+    await createOrphanScenario(sandboxPath, {
+      orphanDescription: config.orphan.description,
+      orphanFiles: config.orphan.files,
+      resetTo: config.orphan.resetTo,
+    });
+  }
+
+  // Create working copy changes
+  if (config.workingCopy) {
+    await createJjWorkingCopyChanges(sandboxPath, config.workingCopy.files, {
+      description: config.workingCopy.description,
+    });
+  }
+
+  // Start a new empty change if requested (default: true unless orphan scenario)
+  if (config.newChange ?? (!config.orphan && !config.workingCopy)) {
+    // Skip if we already have working copy changes or orphan setup
+    // as those leave us in the right state
+  }
+}
 
 /**
  * Run a shell command in the sandbox directory.
