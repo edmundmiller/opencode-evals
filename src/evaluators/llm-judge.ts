@@ -187,8 +187,17 @@ Respond ONLY with the JSON object, no other text.`;
 
     // Strip markdown code fences if present (some models wrap JSON in ```json...```)
     text = text.trim();
-    if (text.startsWith("```")) {
-      text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    // Handle various markdown fence formats
+    const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/);
+    if (fenceMatch) {
+      text = fenceMatch[1].trim();
+    }
+    // Also try to extract JSON object if there's extra text around it
+    if (!text.startsWith("{")) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        text = jsonMatch[0];
+      }
     }
 
     // Parse JSON response

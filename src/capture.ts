@@ -84,25 +84,33 @@ export async function runOpenCode(
       events.push(event);
 
       // Extract tool calls from tool_use events
+      // Format: { type: "tool_use", part: { tool: "name", callID: "...", state: { input, output, time } } }
       if (event.type === "tool_use") {
-        const toolEvent = event as {
-          type: string;
-          name: string;
-          call_id?: string;
-          input?: unknown;
-          output?: unknown;
-          timestamp?: number;
-          duration_ms?: number;
-        };
+        const part = (event as { part?: unknown }).part as {
+          tool?: string;
+          callID?: string;
+          state?: {
+            status?: string;
+            input?: unknown;
+            output?: unknown;
+            time?: { start?: number; end?: number };
+          };
+        } | undefined;
 
-        tool_calls.push({
-          name: toolEvent.name,
-          callID: toolEvent.call_id ?? "",
-          args: toolEvent.input,
-          output: toolEvent.output,
-          timestamp: toolEvent.timestamp ?? Date.now(),
-          duration_ms: toolEvent.duration_ms ?? 0,
-        });
+        if (part?.tool && part?.state) {
+          const duration = part.state.time 
+            ? (part.state.time.end ?? 0) - (part.state.time.start ?? 0)
+            : 0;
+
+          tool_calls.push({
+            name: part.tool,
+            callID: part.callID ?? "",
+            args: part.state.input,
+            output: part.state.output,
+            timestamp: part.state.time?.start ?? Date.now(),
+            duration_ms: duration,
+          });
+        }
       }
 
       // Extract token usage from step_finish events
