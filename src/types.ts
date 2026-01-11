@@ -47,6 +47,76 @@ export interface SetupConfig {
   template?: string;
   files?: Record<string, string>;
   commands?: string[] | Record<string, string[]>;
+  /** VCS (Version Control System) setup configuration */
+  vcs?: VcsSetup;
+}
+
+// ============================================================================
+// VCS Setup Configuration
+// ============================================================================
+
+/**
+ * Configuration for setting up VCS state in sandboxes.
+ * Supports git (and jj in the future).
+ */
+export interface VcsSetup {
+  git?: GitSetup;
+  // Future: jj?: JjSetup;
+}
+
+/**
+ * Git repository setup configuration.
+ */
+export interface GitSetup {
+  /** Initialize as a git repository (default: true if any git options specified) */
+  init?: boolean;
+  /** Default branch name (default: "main") */
+  defaultBranch?: string;
+  /** Author name for commits (default: "Test User") */
+  authorName?: string;
+  /** Author email for commits (default: "test@example.com") */
+  authorEmail?: string;
+  /** Remote repository configuration */
+  remote?: GitRemoteSetup;
+  /** Commits to create in order */
+  commits?: GitCommitSetup[];
+  /** Branches to create */
+  branches?: string[];
+  /** Branch to checkout after setup */
+  checkout?: string;
+  /** Uncommitted changes to create */
+  uncommitted?: {
+    files: Record<string, string>;
+    staged?: boolean;
+  };
+}
+
+/**
+ * Git remote repository setup.
+ */
+export interface GitRemoteSetup {
+  /** Remote name (default: "origin") */
+  name?: string;
+  /** Create as bare repository (default: true) */
+  bare?: boolean;
+  /** Branches to push to the remote */
+  branches?: string[];
+}
+
+/**
+ * Git commit setup.
+ */
+export interface GitCommitSetup {
+  /** Commit message */
+  message: string;
+  /** Files to create/modify before committing */
+  files?: Record<string, string>;
+  /** Branch to commit on (switches to this branch first) */
+  branch?: string;
+  /** Author name override */
+  authorName?: string;
+  /** Author email override */
+  authorEmail?: string;
 }
 
 export interface ErrorHandlingConfig {

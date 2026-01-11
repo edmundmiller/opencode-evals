@@ -1,7 +1,15 @@
 import { mkdtemp, rm, cp, mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import type { SetupConfig } from "./types.js";
+import type { SetupConfig, GitSetup } from "./types.js";
+import {
+  GIT_ISOLATED_ENV,
+  initGitRepo,
+  setupGitRemote,
+  createCommitHistory,
+  setupGitBranches,
+  createUncommittedChanges,
+} from "./vcs-helpers.js";
 
 export interface Sandbox {
   path: string;
@@ -40,6 +48,11 @@ export async function createSandbox(
       }
     }
 
+    // Set up VCS if configured
+    if (setup?.vcs?.git) {
+      await setupGit(path, setup.vcs.git);
+    }
+
     // Run setup commands (variant-aware)
     if (setup?.commands) {
       const commands = Array.isArray(setup.commands)
@@ -56,6 +69,69 @@ export async function createSandbox(
     // Clean up on error
     await cleanup();
     throw error;
+  }
+}
+
+/**
+ * Set up git repository based on configuration.
+ */
+async function setupGit(sandboxPath: string, config: GitSetup): Promise<void> {
+  // Determine if we should init - explicit config or implicit from other options
+  const shouldInit =
+    config.init ??
+    Boolean(
+      config.commits?.length ||
+        config.branches?.length ||
+        config.remote ||
+        config.uncommitted
+    );
+
+  if (shouldInit) {
+    await initGitRepo(sandboxPath, {
+      defaultBranch: config.defaultBranch,
+      authorName: config.authorName,
+      authorEmail: config.authorEmail,
+    });
+  }
+
+  // Create commits in order
+  if (config.commits?.length) {
+    await createCommitHistory(
+      sandboxPath,
+      config.commits.map((c) => ({
+        message: c.message,
+        files: c.files,
+        branch: c.branch,
+        authorName: c.authorName ?? config.authorName,
+        authorEmail: c.authorEmail ?? config.authorEmail,
+      }))
+    );
+  }
+
+  // Create branches
+  if (config.branches?.length) {
+    await setupGitBranches(sandboxPath, config.branches, {
+      checkout: config.checkout,
+    });
+  } else if (config.checkout) {
+    // Just checkout if specified without creating new branches
+    await setupGitBranches(sandboxPath, [], { checkout: config.checkout });
+  }
+
+  // Set up remote
+  if (config.remote) {
+    await setupGitRemote(sandboxPath, {
+      remoteName: config.remote.name,
+      bare: config.remote.bare,
+      branches: config.remote.branches,
+    });
+  }
+
+  // Create uncommitted changes
+  if (config.uncommitted) {
+    await createUncommittedChanges(sandboxPath, config.uncommitted.files, {
+      staged: config.uncommitted.staged,
+    });
   }
 }
 
@@ -80,6 +156,16 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 }
 
 /**
+ * Environment variables for isolated sandbox command execution.
+ * Extends GIT_ISOLATED_ENV with jj-specific settings.
+ */
+export const SANDBOX_ISOLATED_ENV = {
+  ...GIT_ISOLATED_ENV,
+  // Use minimal jj config to avoid user template incompatibilities
+  JJ_CONFIG: "/dev/null",
+} as const;
+
+/**
  * Run a shell command in the sandbox directory.
  */
 async function runCommand(cmd: string, cwd: string): Promise<void> {
@@ -89,10 +175,7 @@ async function runCommand(cmd: string, cwd: string): Promise<void> {
     stderr: "pipe",
     env: {
       ...process.env,
-      CI: "true",
-      GIT_TERMINAL_PROMPT: "0",
-      // Use minimal jj config to avoid user template incompatibilities
-      JJ_CONFIG: "/dev/null",
+      ...SANDBOX_ISOLATED_ENV,
     },
   });
 
