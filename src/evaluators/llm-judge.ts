@@ -180,10 +180,16 @@ Respond ONLY with the JSON object, no other text.`;
     });
 
     // Extract text from response
-    const text = response.content
+    let text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
       .join("");
+
+    // Strip markdown code fences if present (some models wrap JSON in ```json...```)
+    text = text.trim();
+    if (text.startsWith("```")) {
+      text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
 
     // Parse JSON response
     const result = JSON.parse(text.trim());
