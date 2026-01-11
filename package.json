@@ -9,10 +9,11 @@
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./types": "./dist/types.js"
+    "./types": "./dist/types.js",
+    "./vcs-helpers": "./dist/vcs-helpers.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
+    "build": "bun build src/index.ts src/vcs-helpers.ts --outdir dist --target node",
     "dev": "bun run src/index.ts",
     "test": "bun test",
     "eval": "bun run src/index.ts run examples/"
