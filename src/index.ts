@@ -26,6 +26,8 @@ program
   .option("-d, --dry-run", "Validate config without running OpenCode")
   .option("-o, --output <path>", "Output results to JSON file")
   .option("--verbose", "Show detailed output")
+  .option("-t, --trials <number>", "Number of trials per example (overrides config)", parseInt)
+  .option("--pass-criteria <type>", "Pass criteria: 'any' (pass@k) or 'all' (pass^k)", "any")
   .action(async (path: string, options) => {
     const resolvedPath = resolve(path);
     const evalFiles = await findEvalFiles(resolvedPath);
@@ -45,6 +47,8 @@ program
         variant: options.variant,
         dryRun: options.dryRun,
         verbose: options.verbose,
+        trials: options.trials,
+        pass_criteria: options.passCriteria as 'any' | 'all',
       });
       allExperiments.push(...experiments);
     }
@@ -62,9 +66,17 @@ program
 
     for (const exp of allExperiments) {
       const icon = exp.summary.pass_rate === 1 ? "✅" : "❌";
-      console.log(
-        `${icon} ${exp.eval_name} [${exp.variant}]: ${exp.summary.passed}/${exp.summary.total_examples} passed`
-      );
+      let line = `${icon} ${exp.eval_name} [${exp.variant}]: ${exp.summary.passed}/${exp.summary.total_examples} passed`;
+      
+      // Add trial metrics if available
+      if (exp.summary.trial_metrics) {
+        const tm = exp.summary.trial_metrics;
+        line += ` | pass@${tm.trials_per_example}: ${(tm.pass_at_k * 100).toFixed(0)}%`;
+        line += ` | pass^${tm.trials_per_example}: ${(tm.pass_all_k * 100).toFixed(0)}%`;
+        line += ` | consistency: ${(tm.consistency_rate * 100).toFixed(0)}%`;
+      }
+      
+      console.log(line);
     }
 
     const totalPassed = allExperiments.reduce(

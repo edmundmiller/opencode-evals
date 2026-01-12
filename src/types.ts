@@ -34,6 +34,12 @@ export interface EvalConfig {
   evaluators: EvaluatorConfig[];
   judge_model?: string; // Default: claude-3-haiku-20240307
   error_handling?: ErrorHandlingConfig;
+  /** Number of trials to run per example (default: 1) */
+  trials?: number;
+  /** Save full transcripts for analysis (default: false) */
+  save_transcripts?: boolean;
+  /** Directory to save transcripts (default: .evals/transcripts) */
+  transcript_dir?: string;
 }
 
 export interface VariantConfig {
@@ -222,11 +228,15 @@ export type Assertion =
 // OpenCode Event Stream (from opencode run --format json)
 // ============================================================================
 
+/**
+ * Raw NDJSON event from opencode. Loosely typed since format may vary.
+ */
 export interface OpenCodeEvent {
-  type: "step_start" | "tool_use" | "text" | "step_finish";
-  timestamp: number;
-  sessionID: string;
-  part: OpenCodeEventPart;
+  type: string;
+  timestamp?: number;
+  sessionID?: string;
+  part?: OpenCodeEventPart;
+  [key: string]: unknown;
 }
 
 export interface OpenCodeEventPart {
@@ -277,9 +287,12 @@ export interface Experiment {
   summary: ExperimentSummary;
 }
 
-export interface ExampleResult {
-  example_id: string;
-  inputs: Example["inputs"];
+/**
+ * Result of a single trial execution.
+ * Multiple trials may be run per example to handle non-determinism.
+ */
+export interface TrialResult {
+  trial_number: number;
   outputs: {
     events: OpenCodeEvent[];
     final_files: Record<string, string>;
@@ -291,6 +304,32 @@ export interface ExampleResult {
   };
   feedback: Feedback[];
   passed: boolean;
+  /** Path to saved transcript file, if save_transcripts enabled */
+  transcript_path?: string;
+}
+
+export interface ExampleResult {
+  example_id: string;
+  inputs: Example["inputs"];
+  /** Individual trial results (when trials > 1) */
+  trials: TrialResult[];
+  /** Aggregated outputs from all trials (backward compatible) */
+  outputs: {
+    events: OpenCodeEvent[];
+    final_files: Record<string, string>;
+    tool_calls: ToolCall[];
+    exit_code: number;
+    tokens_used: number;
+    cost: number;
+    duration_ms: number;
+  };
+  feedback: Feedback[];
+  /** True if passed based on configured pass criteria */
+  passed: boolean;
+  /** Number of trials that passed */
+  trials_passed: number;
+  /** Total number of trials run */
+  trials_total: number;
 }
 
 export interface Feedback {
@@ -309,6 +348,29 @@ export interface ExperimentSummary {
   total_tokens: number;
   total_cost: number;
   total_duration_ms: number;
+  /** Multi-trial metrics (when trials > 1) */
+  trial_metrics?: TrialMetrics;
+}
+
+/**
+ * Metrics for multi-trial evaluation.
+ * See: https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents
+ */
+export interface TrialMetrics {
+  /** Number of trials per example */
+  trials_per_example: number;
+  /** pass@k: fraction of examples where at least 1 trial passed */
+  pass_at_k: number;
+  /** pass^k: fraction of examples where ALL trials passed */
+  pass_all_k: number;
+  /** Average pass rate across all trials */
+  avg_trial_pass_rate: number;
+  /** Standard deviation of pass rates across examples */
+  pass_rate_std_dev: number;
+  /** Examples with inconsistent results (some trials pass, some fail) */
+  inconsistent_examples: number;
+  /** Consistency rate: fraction of examples with consistent results */
+  consistency_rate: number;
 }
 
 // ============================================================================
@@ -320,6 +382,10 @@ export interface RunOptions {
   dryRun?: boolean;
   output?: string;
   verbose?: boolean;
+  /** Override number of trials from config */
+  trials?: number;
+  /** Pass criteria: 'any' (pass@k) or 'all' (pass^k). Default: 'any' */
+  pass_criteria?: 'any' | 'all';
 }
 
 export interface CompareOptions {

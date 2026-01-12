@@ -27,6 +27,12 @@ opencode-eval run evals/ --dry-run
 
 # Output results to JSON
 opencode-eval run evals/ --output results.json
+
+# Run multiple trials per example (for non-deterministic agents)
+opencode-eval run evals/ --trials 3
+
+# Use pass^k criteria (all trials must pass)
+opencode-eval run evals/ --trials 3 --pass-criteria all
 ```
 
 ### Comparing Results
@@ -40,6 +46,48 @@ opencode-eval compare results-baseline.json results-treatment.json
 ```bash
 opencode-eval report results.json --format markdown
 ```
+
+## Handling Non-Determinism
+
+AI agents are inherently non-deterministic. Running the same task multiple times may produce different results. This framework supports multi-trial evaluation to handle this:
+
+### Multi-Trial Configuration
+
+```jsonc
+{
+  "name": "my-eval",
+  "trials": 3,              // Run each example 3 times
+  "save_transcripts": true, // Save full conversation logs
+  "transcript_dir": ".evals/transcripts",
+  // ... rest of config
+}
+```
+
+### Pass Criteria
+
+- **pass@k** (default): Example passes if *at least one* trial succeeds
+- **pass^k**: Example passes only if *all* trials succeed
+
+Use `--pass-criteria all` for stricter evaluation.
+
+### Trial Metrics
+
+When running multiple trials, you get additional metrics:
+
+| Metric | Description |
+|--------|-------------|
+| pass@k | Fraction of examples where at least 1 trial passed |
+| pass^k | Fraction of examples where ALL trials passed |
+| Avg Trial Pass Rate | Average pass rate across all trials |
+| Consistency Rate | Fraction of examples with consistent results |
+| Inconsistent Examples | Count of examples where some trials pass, some fail |
+
+### Best Practices
+
+- **Start with 1 trial** for fast iteration during development
+- **Use 3-5 trials** for final evaluation of non-deterministic agents
+- **Use pass^k** when consistency is critical
+- **Review transcripts** of inconsistent examples to understand failure modes
 
 ## Eval Config Format
 
@@ -93,7 +141,11 @@ opencode-eval report results.json --format markdown
     "on_error": "continue",
     "retry_count": 1,
     "timeout_ms": 120000
-  }
+  },
+  // Multi-trial options (optional)
+  "trials": 3,              // Number of trials per example (default: 1)
+  "save_transcripts": true, // Save conversation logs for analysis
+  "transcript_dir": ".evals/transcripts"
 }
 ```
 

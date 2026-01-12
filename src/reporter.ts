@@ -47,13 +47,34 @@ export function generateMarkdownReport(experiments: Experiment[]): string {
     );
     lines.push("");
 
+    // Trial metrics (if multi-trial)
+    if (exp.summary.trial_metrics) {
+      const tm = exp.summary.trial_metrics;
+      lines.push("### Trial Metrics");
+      lines.push("");
+      lines.push(`*${tm.trials_per_example} trials per example*`);
+      lines.push("");
+      lines.push("| Metric | Value |");
+      lines.push("|--------|-------|");
+      lines.push(`| pass@${tm.trials_per_example} | ${(tm.pass_at_k * 100).toFixed(1)}% |`);
+      lines.push(`| pass^${tm.trials_per_example} | ${(tm.pass_all_k * 100).toFixed(1)}% |`);
+      lines.push(`| Avg Trial Pass Rate | ${(tm.avg_trial_pass_rate * 100).toFixed(1)}% |`);
+      lines.push(`| Pass Rate Std Dev | ${(tm.pass_rate_std_dev * 100).toFixed(1)}% |`);
+      lines.push(`| Inconsistent Examples | ${tm.inconsistent_examples} |`);
+      lines.push(`| Consistency Rate | ${(tm.consistency_rate * 100).toFixed(1)}% |`);
+      lines.push("");
+    }
+
     // Results
     lines.push("### Results");
     lines.push("");
 
     for (const result of exp.results) {
       const icon = result.passed ? "✅" : "❌";
-      lines.push(`#### ${icon} ${result.example_id}`);
+      const trialInfo = result.trials_total > 1 
+        ? ` (${result.trials_passed}/${result.trials_total} trials)`
+        : "";
+      lines.push(`#### ${icon} ${result.example_id}${trialInfo}`);
       lines.push("");
       lines.push(`**Query:** ${result.inputs.query}`);
       lines.push("");
