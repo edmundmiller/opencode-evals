@@ -40,6 +40,8 @@ export interface EvalConfig {
   save_transcripts?: boolean;
   /** Directory to save transcripts (default: .evals/transcripts) */
   transcript_dir?: string;
+  /** Parallel execution configuration */
+  parallel?: ParallelConfig;
 }
 
 export interface VariantConfig {
@@ -201,6 +203,96 @@ export interface ErrorHandlingConfig {
   on_error: "continue" | "abort" | "retry";
   retry_count?: number; // Default: 0
   timeout_ms?: number; // Default: 120000
+}
+
+// ============================================================================
+// Parallel Execution Configuration
+// ============================================================================
+
+/**
+ * Configuration for parallel execution of examples and trials.
+ * Based on Anthropic's eval best practices for faster iteration.
+ */
+export interface ParallelConfig {
+  /** Enable parallel execution (default: false) */
+  enabled?: boolean;
+  /** Maximum concurrent examples (default: 4) */
+  max_examples?: number;
+  /** Maximum concurrent trials per example (default: 2) */
+  max_trials?: number;
+  /** Delay between starting parallel tasks in ms (default: 100) */
+  stagger_ms?: number;
+}
+
+// ============================================================================
+// Eval Saturation & Maintenance
+// ============================================================================
+
+/**
+ * Warning generated when an eval shows signs of saturation.
+ */
+export interface SaturationWarning {
+  type: "high_pass_rate" | "low_variance" | "non_discriminating";
+  message: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  recommendation: string;
+}
+
+/**
+ * Analysis of eval health and maintenance needs.
+ */
+export interface EvalHealthReport {
+  eval_name: string;
+  timestamp: string;
+  /** Overall health score (0-1) */
+  health_score: number;
+  /** Saturation warnings */
+  warnings: SaturationWarning[];
+  /** Per-example difficulty scores */
+  difficulty_scores: Record<string, DifficultyScore>;
+  /** Grader validation results */
+  grader_validation?: GraderValidation;
+}
+
+/**
+ * Difficulty score for an individual example.
+ */
+export interface DifficultyScore {
+  example_id: string;
+  /** Pass rate across all runs (0-1) */
+  pass_rate: number;
+  /** Average score across runs */
+  avg_score: number;
+  /** Variance in scores */
+  score_variance: number;
+  /** Suggested difficulty label */
+  difficulty: "easy" | "medium" | "hard" | "very_hard";
+  /** Whether this example is discriminating (separates good from bad) */
+  is_discriminating: boolean;
+}
+
+/**
+ * Grader validation results.
+ */
+export interface GraderValidation {
+  /** Total graders checked */
+  total_graders: number;
+  /** Graders that passed validation */
+  valid_graders: number;
+  /** Issues found during validation */
+  issues: GraderIssue[];
+}
+
+/**
+ * Issue found during grader validation.
+ */
+export interface GraderIssue {
+  grader_key: string;
+  type: "always_passes" | "always_fails" | "low_variance" | "inconsistent";
+  message: string;
+  suggestion: string;
 }
 
 // ============================================================================
@@ -442,6 +534,10 @@ export interface RunOptions {
   trials?: number;
   /** Pass criteria: 'any' (pass@k) or 'all' (pass^k). Default: 'any' */
   pass_criteria?: 'any' | 'all';
+  /** Override parallel execution from config */
+  parallel?: boolean;
+  /** Override max concurrent examples */
+  concurrency?: number;
 }
 
 export interface CompareOptions {

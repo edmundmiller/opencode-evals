@@ -8,6 +8,11 @@ import {
   generateMarkdownReport,
   generateComparisonReport,
 } from "./reporter.js";
+import {
+  generateHealthReport,
+  formatHealthReport,
+  detectSaturation,
+} from "./analysis.js";
 import { getFixturesDir } from "./sandbox.js";
 import type { Experiment } from "./types.js";
 
@@ -28,6 +33,8 @@ program
   .option("--verbose", "Show detailed output")
   .option("-t, --trials <number>", "Number of trials per example (overrides config)", parseInt)
   .option("--pass-criteria <type>", "Pass criteria: 'any' (pass@k) or 'all' (pass^k)", "any")
+  .option("-p, --parallel", "Enable parallel execution")
+  .option("-c, --concurrency <number>", "Max concurrent examples (default: 4)", parseInt)
   .action(async (path: string, options) => {
     const resolvedPath = resolve(path);
     const evalFiles = await findEvalFiles(resolvedPath);
@@ -49,6 +56,8 @@ program
         verbose: options.verbose,
         trials: options.trials,
         pass_criteria: options.passCriteria as 'any' | 'all',
+        parallel: options.parallel,
+        concurrency: options.concurrency,
       });
       allExperiments.push(...experiments);
     }
@@ -163,6 +172,128 @@ program
       }
     } catch {
       console.log("No fixtures directory found");
+    }
+  });
+
+// Health command - analyze eval health and saturation
+program
+  .command("health <file>")
+  .description("Analyze eval health, saturation, and grader quality")
+  .option("-f, --format <type>", "Output format (json|markdown)", "markdown")
+  .option("-o, --output <path>", "Output to file instead of stdout")
+  .option("--pass-threshold <number>", "Pass rate threshold for saturation warning (default: 0.95)", parseFloat)
+  .option("--variance-threshold <number>", "Variance threshold for low variance warning (default: 0.05)", parseFloat)
+  .action(async (file: string, options) => {
+    const experiments: Experiment[] = JSON.parse(await readFile(file, "utf-8"));
+
+    if (experiments.length === 0) {
+      console.error("No experiments found in file");
+      process.exit(1);
+    }
+
+    // Check for immediate saturation warnings
+    const latestExp = experiments[experiments.length - 1];
+    const warnings = detectSaturation(latestExp, {
+      high_pass_rate: options.passThreshold,
+      low_variance: options.varianceThreshold,
+    });
+
+    if (warnings.length > 0) {
+      console.log("\n⚠️  Saturation Warnings Detected:");
+      for (const w of warnings) {
+        console.log(`   - ${w.type}: ${w.message}`);
+      }
+      console.log("");
+    }
+
+    // Generate full health report
+    const report = generateHealthReport(experiments, {
+      high_pass_rate: options.passThreshold,
+      low_variance: options.varianceThreshold,
+    });
+
+    let output: string;
+    if (options.format === "json") {
+      output = JSON.stringify(report, null, 2);
+    } else {
+      output = formatHealthReport(report);
+    }
+
+    if (options.output) {
+      await writeFile(options.output, output, "utf-8");
+      console.log(`Health report written to: ${options.output}`);
+    } else {
+      console.log(output);
+    }
+
+    // Exit with warning code if health is poor
+    if (report.health_score < 0.5) {
+      process.exit(2);
+    }
+  });
+
+// Difficulty command - analyze example difficulty
+program
+  .command("difficulty <file>")
+  .description("Analyze example difficulty and discrimination")
+  .option("-f, --format <type>", "Output format (json|markdown|csv)", "markdown")
+  .option("-o, --output <path>", "Output to file instead of stdout")
+  .option("--sort <by>", "Sort by: pass_rate, variance, difficulty", "pass_rate")
+  .action(async (file: string, options) => {
+    const experiments: Experiment[] = JSON.parse(await readFile(file, "utf-8"));
+
+    if (experiments.length === 0) {
+      console.error("No experiments found in file");
+      process.exit(1);
+    }
+
+    const report = generateHealthReport(experiments);
+    const difficulties = Object.values(report.difficulty_scores);
+
+    // Sort
+    if (options.sort === "pass_rate") {
+      difficulties.sort((a, b) => a.pass_rate - b.pass_rate);
+    } else if (options.sort === "variance") {
+      difficulties.sort((a, b) => b.score_variance - a.score_variance);
+    } else if (options.sort === "difficulty") {
+      const order = { very_hard: 0, hard: 1, medium: 2, easy: 3 };
+      difficulties.sort((a, b) => order[a.difficulty] - order[b.difficulty]);
+    }
+
+    let output: string;
+    if (options.format === "json") {
+      output = JSON.stringify(difficulties, null, 2);
+    } else if (options.format === "csv") {
+      const lines = ["example_id,pass_rate,avg_score,variance,difficulty,discriminating"];
+      for (const d of difficulties) {
+        lines.push(`${d.example_id},${d.pass_rate.toFixed(3)},${d.avg_score.toFixed(3)},${d.score_variance.toFixed(4)},${d.difficulty},${d.is_discriminating}`);
+      }
+      output = lines.join("\n");
+    } else {
+      const lines: string[] = [];
+      lines.push("# Example Difficulty Analysis");
+      lines.push("");
+      lines.push("| Example | Pass Rate | Avg Score | Variance | Difficulty | Discriminating |");
+      lines.push("|---------|-----------|-----------|----------|------------|----------------|");
+      for (const d of difficulties) {
+        const disc = d.is_discriminating ? "Yes" : "No";
+        lines.push(`| ${d.example_id} | ${(d.pass_rate * 100).toFixed(0)}% | ${(d.avg_score * 100).toFixed(0)}% | ${d.score_variance.toFixed(3)} | ${d.difficulty} | ${disc} |`);
+      }
+      lines.push("");
+
+      // Summary
+      const easyCount = difficulties.filter(d => d.difficulty === "easy").length;
+      const discCount = difficulties.filter(d => d.is_discriminating).length;
+      lines.push(`**Summary:** ${difficulties.length} examples, ${easyCount} easy (${((easyCount/difficulties.length)*100).toFixed(0)}%), ${discCount} discriminating (${((discCount/difficulties.length)*100).toFixed(0)}%)`);
+
+      output = lines.join("\n");
+    }
+
+    if (options.output) {
+      await writeFile(options.output, output, "utf-8");
+      console.log(`Difficulty analysis written to: ${options.output}`);
+    } else {
+      console.log(output);
     }
   });
 

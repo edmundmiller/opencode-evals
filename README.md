@@ -89,6 +89,111 @@ When running multiple trials, you get additional metrics:
 - **Use pass^k** when consistency is critical
 - **Review transcripts** of inconsistent examples to understand failure modes
 
+## Parallel Execution
+
+Speed up eval runs by executing examples and trials concurrently:
+
+```bash
+# Enable parallel execution
+opencode-eval run evals/ --parallel
+
+# Set concurrency level (default: 4)
+opencode-eval run evals/ --parallel --concurrency 8
+
+# Combine with trials for fast non-determinism testing
+opencode-eval run evals/ --parallel --trials 3
+```
+
+### Parallel Configuration
+
+```jsonc
+{
+  "name": "my-eval",
+  "parallel": {
+    "enabled": true,
+    "max_examples": 4,    // Max concurrent examples
+    "max_trials": 2,      // Max concurrent trials per example
+    "stagger_ms": 100     // Delay between task starts
+  }
+}
+```
+
+### Parallel Execution Tips
+
+- **Resource contention**: Set `stagger_ms` to reduce simultaneous API calls
+- **Rate limits**: Lower concurrency if hitting API rate limits
+- **Debugging**: Disable parallel (`--parallel=false`) when investigating failures
+- **CI/CD**: Use higher concurrency in CI where resources are abundant
+
+## Eval Health & Saturation Detection
+
+Monitor eval quality and detect when evals become too easy:
+
+```bash
+# Analyze eval health
+opencode-eval health results.json
+
+# Output as JSON
+opencode-eval health results.json --format json
+
+# Custom thresholds
+opencode-eval health results.json --pass-threshold 0.90 --variance-threshold 0.10
+```
+
+### Saturation Warnings
+
+The framework detects common eval issues:
+
+| Warning | Description | Recommendation |
+|---------|-------------|----------------|
+| `high_pass_rate` | Pass rate exceeds threshold (default: 95%) | Add harder examples or stricter criteria |
+| `low_variance` | Score variance too low | Add examples with varying difficulty |
+| `non_discriminating` | All examples pass or all fail | Check grading logic, add edge cases |
+
+### Health Report
+
+The `health` command generates a comprehensive report including:
+
+- **Overall health score** (0-100%)
+- **Saturation warnings** with recommendations
+- **Grader validation** (detects always-pass/fail graders)
+- **Difficulty distribution** across examples
+
+## Difficulty Analysis
+
+Analyze example difficulty to balance your eval set:
+
+```bash
+# Markdown table of difficulty scores
+opencode-eval difficulty results.json
+
+# Sort by pass rate (easiest first)
+opencode-eval difficulty results.json --sort pass_rate
+
+# Export as CSV for spreadsheet analysis
+opencode-eval difficulty results.json --format csv --output difficulty.csv
+```
+
+### Difficulty Metrics
+
+| Metric | Description |
+|--------|-------------|
+| Pass Rate | Fraction of runs where example passed |
+| Avg Score | Average normalized score across runs |
+| Variance | Score variance (higher = more variable) |
+| Difficulty | Label: easy/medium/hard/very_hard |
+| Discriminating | Whether example separates good from bad outputs |
+
+### Maintenance Best Practices
+
+Based on [Anthropic's eval guidelines](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents):
+
+1. **Monitor saturation**: Run `health` regularly; add harder examples when pass rate > 90%
+2. **Balance difficulty**: Aim for mix of easy (sanity checks), medium, and hard examples
+3. **Maximize discrimination**: Focus on examples where some approaches succeed and others fail
+4. **Validate graders**: Check for graders that always pass or always fail
+5. **Convert failures to evals**: When agents fail in production, add those cases as new examples
+
 ## Eval Config Format
 
 ```jsonc

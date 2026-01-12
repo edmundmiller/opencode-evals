@@ -11,6 +11,7 @@ import type {
   RunOptions,
   TrialResult,
   TrialMetrics,
+  ParallelConfig,
 } from "./types.js";
 import { createSandbox, readDirectoryFiles, getFixturesDir } from "./sandbox.js";
 import { runOpenCode } from "./capture.js";
@@ -45,81 +46,37 @@ export async function runEval(
 
     console.log(`\n📊 Running variant: ${variantName}`);
 
-    const results: ExampleResult[] = [];
-
     const numTrials = options.trials ?? config.trials ?? 1;
     const passCriteria = options.pass_criteria ?? 'any';
 
-    for (const example of dataset.examples) {
-      console.log(`  🔄 Example: ${example.id}${numTrials > 1 ? ` (${numTrials} trials)` : ''}`);
+    // Determine parallel execution settings
+    const parallelConfig = resolveParallelConfig(config.parallel, options);
+    const useParallel = parallelConfig.enabled && !options.dryRun;
 
-      if (options.dryRun) {
-        console.log(`    ⏭️  Skipped (dry run)`);
-        continue;
-      }
+    let results: ExampleResult[];
 
-      try {
-        const result = await runExampleWithTrials(
-          example,
-          variantName,
-          variantConfig,
-          config,
-          options,
-          numTrials,
-          passCriteria
-        );
-        results.push(result);
-
-        const status = result.passed ? "✅" : "❌";
-        const trialInfo = numTrials > 1 ? ` (${result.trials_passed}/${result.trials_total} trials)` : '';
-        console.log(`    ${status} ${result.passed ? "Passed" : "Failed"}${trialInfo}`);
-      } catch (error) {
-        console.error(`    ❌ Error: ${error}`);
-
-        // Handle based on error_handling config
-        const errorHandling = config.error_handling?.on_error ?? "continue";
-
-        if (errorHandling === "abort") {
-          throw error;
-        }
-
-        // Create failed result with empty trials
-        const emptyTrial: TrialResult = {
-          trial_number: 1,
-          outputs: {
-            events: [],
-            final_files: {},
-            tool_calls: [],
-            exit_code: -1,
-            tokens_used: 0,
-            cost: 0,
-            duration_ms: 0,
-          },
-          feedback: [
-            {
-              key: "error",
-              score: 0,
-              normalized_score: 0,
-              weight: 1,
-              weighted_score: 0,
-              passed: false,
-              comment: String(error),
-            },
-          ],
-          passed: false,
-        };
-
-        results.push({
-          example_id: example.id,
-          inputs: example.inputs,
-          trials: [emptyTrial],
-          outputs: emptyTrial.outputs,
-          feedback: emptyTrial.feedback,
-          passed: false,
-          trials_passed: 0,
-          trials_total: 1,
-        });
-      }
+    if (useParallel) {
+      console.log(`  ⚡ Running ${dataset.examples.length} examples in parallel (max ${parallelConfig.max_examples} concurrent)`);
+      results = await runExamplesParallel(
+        dataset.examples,
+        variantName,
+        variantConfig,
+        config,
+        options,
+        numTrials,
+        passCriteria,
+        parallelConfig
+      );
+    } else {
+      results = await runExamplesSequential(
+        dataset.examples,
+        variantName,
+        variantConfig,
+        config,
+        options,
+        numTrials,
+        passCriteria
+      );
     }
 
     const summary = calculateSummary(results);
@@ -157,6 +114,260 @@ async function loadDataset(
 }
 
 /**
+ * Resolve parallel configuration from config and CLI options.
+ */
+function resolveParallelConfig(
+  configParallel: ParallelConfig | undefined,
+  options: RunOptions
+): Required<ParallelConfig> {
+  const enabled = options.parallel ?? configParallel?.enabled ?? false;
+  const max_examples = options.concurrency ?? configParallel?.max_examples ?? 4;
+  const max_trials = configParallel?.max_trials ?? 2;
+  const stagger_ms = configParallel?.stagger_ms ?? 100;
+
+  return { enabled, max_examples, max_trials, stagger_ms };
+}
+
+/**
+ * Run examples sequentially (original behavior).
+ */
+async function runExamplesSequential(
+  examples: Example[],
+  variantName: string,
+  variantConfig: EvalConfig["variants"][string],
+  config: EvalConfig,
+  options: RunOptions,
+  numTrials: number,
+  passCriteria: 'any' | 'all'
+): Promise<ExampleResult[]> {
+  const results: ExampleResult[] = [];
+
+  for (const example of examples) {
+    console.log(`  🔄 Example: ${example.id}${numTrials > 1 ? ` (${numTrials} trials)` : ''}`);
+
+    if (options.dryRun) {
+      console.log(`    ⏭️  Skipped (dry run)`);
+      continue;
+    }
+
+    try {
+      const result = await runExampleWithTrials(
+        example,
+        variantName,
+        variantConfig,
+        config,
+        options,
+        numTrials,
+        passCriteria
+      );
+      results.push(result);
+
+      const status = result.passed ? "✅" : "❌";
+      const trialInfo = numTrials > 1 ? ` (${result.trials_passed}/${result.trials_total} trials)` : '';
+      console.log(`    ${status} ${result.passed ? "Passed" : "Failed"}${trialInfo}`);
+    } catch (error) {
+      console.error(`    ❌ Error: ${error}`);
+      const errorResult = createErrorResult(example, error, config);
+      if (errorResult === null) {
+        throw error; // abort mode
+      }
+      results.push(errorResult);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Run examples in parallel with a worker pool.
+ */
+async function runExamplesParallel(
+  examples: Example[],
+  variantName: string,
+  variantConfig: EvalConfig["variants"][string],
+  config: EvalConfig,
+  options: RunOptions,
+  numTrials: number,
+  passCriteria: 'any' | 'all',
+  parallelConfig: Required<ParallelConfig>
+): Promise<ExampleResult[]> {
+  const results: ExampleResult[] = new Array(examples.length);
+  const queue = examples.map((example, index) => ({ example, index }));
+  let completed = 0;
+
+  // Worker function that processes examples from the queue
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+
+      const { example, index } = item;
+
+      // Stagger start times to reduce resource contention
+      if (parallelConfig.stagger_ms > 0 && completed > 0) {
+        await sleep(parallelConfig.stagger_ms);
+      }
+
+      try {
+        const result = await runExampleWithTrials(
+          example,
+          variantName,
+          variantConfig,
+          config,
+          options,
+          numTrials,
+          passCriteria
+        );
+        results[index] = result;
+
+        completed++;
+        const status = result.passed ? "✅" : "❌";
+        const trialInfo = numTrials > 1 ? ` (${result.trials_passed}/${result.trials_total} trials)` : '';
+        console.log(`    [${completed}/${examples.length}] ${status} ${example.id}${trialInfo}`);
+      } catch (error) {
+        console.error(`    ❌ Error in ${example.id}: ${error}`);
+        const errorResult = createErrorResult(example, error, config);
+        if (errorResult === null) {
+          throw error; // abort mode - will propagate up
+        }
+        results[index] = errorResult;
+        completed++;
+      }
+    }
+  }
+
+  // Create worker pool
+  const numWorkers = Math.min(parallelConfig.max_examples, examples.length);
+  const workers: Promise<void>[] = [];
+
+  for (let i = 0; i < numWorkers; i++) {
+    workers.push(worker());
+  }
+
+  // Wait for all workers to complete
+  await Promise.all(workers);
+
+  return results;
+}
+
+/**
+ * Create an error result for a failed example.
+ * Returns null if error_handling is set to "abort".
+ */
+function createErrorResult(
+  example: Example,
+  error: unknown,
+  config: EvalConfig
+): ExampleResult | null {
+  const errorHandling = config.error_handling?.on_error ?? "continue";
+
+  if (errorHandling === "abort") {
+    return null;
+  }
+
+  const emptyTrial: TrialResult = {
+    trial_number: 1,
+    outputs: {
+      events: [],
+      final_files: {},
+      tool_calls: [],
+      exit_code: -1,
+      tokens_used: 0,
+      cost: 0,
+      duration_ms: 0,
+    },
+    feedback: [
+      {
+        key: "error",
+        score: 0,
+        normalized_score: 0,
+        weight: 1,
+        weighted_score: 0,
+        passed: false,
+        comment: String(error),
+      },
+    ],
+    passed: false,
+  };
+
+  return {
+    example_id: example.id,
+    inputs: example.inputs,
+    trials: [emptyTrial],
+    outputs: emptyTrial.outputs,
+    feedback: emptyTrial.feedback,
+    passed: false,
+    trials_passed: 0,
+    trials_total: 1,
+  };
+}
+
+/**
+ * Sleep for a specified number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Run trials in parallel with limited concurrency.
+ */
+async function runTrialsParallel(
+  example: Example,
+  variantName: string,
+  variantConfig: EvalConfig["variants"][string],
+  config: EvalConfig,
+  options: RunOptions,
+  numTrials: number,
+  maxConcurrent: number
+): Promise<TrialResult[]> {
+  const results: TrialResult[] = new Array(numTrials);
+  const trialNumbers = Array.from({ length: numTrials }, (_, i) => i + 1);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < trialNumbers.length) {
+      const trialNum = trialNumbers[nextIndex++];
+      
+      const trialResult = await runSingleTrial(
+        example,
+        variantName,
+        variantConfig,
+        config,
+        options,
+        trialNum
+      );
+
+      // Save transcript if enabled
+      if (config.save_transcripts) {
+        const transcriptPath = await saveTranscript(
+          config,
+          variantName,
+          example.id,
+          trialNum,
+          trialResult
+        );
+        trialResult.transcript_path = transcriptPath;
+      }
+
+      results[trialNum - 1] = trialResult;
+    }
+  }
+
+  // Create worker pool
+  const numWorkers = Math.min(maxConcurrent, numTrials);
+  const workers: Promise<void>[] = [];
+
+  for (let i = 0; i < numWorkers; i++) {
+    workers.push(worker());
+  }
+
+  await Promise.all(workers);
+
+  return results;
+}
+
+/**
  * Run an example with multiple trials, aggregating results.
  */
 async function runExampleWithTrials(
@@ -168,35 +379,53 @@ async function runExampleWithTrials(
   numTrials: number,
   passCriteria: 'any' | 'all'
 ): Promise<ExampleResult> {
-  const trials: TrialResult[] = [];
+  const parallelConfig = resolveParallelConfig(config.parallel, options);
+  const parallelTrials = parallelConfig.enabled && numTrials > 1;
 
-  for (let trialNum = 1; trialNum <= numTrials; trialNum++) {
-    if (numTrials > 1 && options.verbose) {
-      console.log(`      Trial ${trialNum}/${numTrials}...`);
-    }
+  let trials: TrialResult[];
 
-    const trialResult = await runSingleTrial(
+  if (parallelTrials) {
+    // Run trials in parallel with limited concurrency
+    trials = await runTrialsParallel(
       example,
       variantName,
       variantConfig,
       config,
       options,
-      trialNum
+      numTrials,
+      parallelConfig.max_trials
     );
+  } else {
+    // Run trials sequentially
+    trials = [];
+    for (let trialNum = 1; trialNum <= numTrials; trialNum++) {
+      if (numTrials > 1 && options.verbose) {
+        console.log(`      Trial ${trialNum}/${numTrials}...`);
+      }
 
-    // Save transcript if enabled
-    if (config.save_transcripts) {
-      const transcriptPath = await saveTranscript(
-        config,
+      const trialResult = await runSingleTrial(
+        example,
         variantName,
-        example.id,
-        trialNum,
-        trialResult
+        variantConfig,
+        config,
+        options,
+        trialNum
       );
-      trialResult.transcript_path = transcriptPath;
-    }
 
-    trials.push(trialResult);
+      // Save transcript if enabled
+      if (config.save_transcripts) {
+        const transcriptPath = await saveTranscript(
+          config,
+          variantName,
+          example.id,
+          trialNum,
+          trialResult
+        );
+        trialResult.transcript_path = transcriptPath;
+      }
+
+      trials.push(trialResult);
+    }
   }
 
   // Aggregate results
