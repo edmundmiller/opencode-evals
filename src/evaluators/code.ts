@@ -1,7 +1,9 @@
 import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { exec } from "node:child_process";
-import { promisify } from "node:util";
+import { promisify, isDeepStrictEqual } from "node:util";
+import { Database } from "bun:sqlite";
+import { Client } from "pg";
 import type { Assertion, Feedback, ToolCall } from "../types.js";
 
 const execAsync = promisify(exec);
@@ -103,6 +105,15 @@ async function evaluateAssertion(
 
     case "process_running":
       return evaluateProcessRunning(assertion.name, assertion.match ?? "exact", weight);
+
+    case "database_query_result":
+      return evaluateDatabaseQuery(
+        assertion.connection,
+        assertion.query,
+        assertion.expected,
+        sandboxPath,
+        weight
+      );
 
     // Advanced graders
     case "no_lint_errors":
@@ -327,6 +338,135 @@ async function evaluateProcessRunning(
       false,
       "Failed to inspect running processes"
     );
+  }
+}
+
+async function evaluateDatabaseQuery(
+  connection: string,
+  query: string,
+  expected: unknown,
+  sandboxPath: string,
+  weight: number
+): Promise<Feedback> {
+  const key = "database_query_result";
+
+  try {
+    const rows = await runDatabaseQuery(connection, query, sandboxPath);
+    const { passed, comment } = compareExpectedResult(rows, expected);
+    return createFeedback(key, passed ? 1 : 0, weight, passed, comment);
+  } catch (error) {
+    return createFeedback(
+      key,
+      0,
+      weight,
+      false,
+      `Database query failed: ${String(error)}`
+    );
+  }
+}
+
+async function runDatabaseQuery(
+  connection: string,
+  query: string,
+  sandboxPath: string
+): Promise<unknown[]> {
+  if (isSqliteConnection(connection)) {
+    const sqlitePath = resolveSqlitePath(connection, sandboxPath);
+    const db = new Database(sqlitePath, { readonly: true });
+    try {
+      return db.query(query).all() as unknown[];
+    } finally {
+      db.close();
+    }
+  }
+
+  if (isPostgresConnection(connection)) {
+    const client = new Client({ connectionString: connection });
+    await client.connect();
+    try {
+      const result = await client.query(query);
+      return result.rows as unknown[];
+    } finally {
+      await client.end();
+    }
+  }
+
+  throw new Error("Unsupported database connection string");
+}
+
+function isSqliteConnection(connection: string): boolean {
+  return connection.startsWith("sqlite:");
+}
+
+function isPostgresConnection(connection: string): boolean {
+  return connection.startsWith("postgres://") || connection.startsWith("postgresql://");
+}
+
+function resolveSqlitePath(connection: string, sandboxPath: string): string {
+  let path = connection.replace(/^sqlite:\/\/?/, "");
+  if (path === ":memory:") {
+    return ":memory:";
+  }
+
+  if (!path) {
+    throw new Error("SQLite connection string missing path");
+  }
+
+  return isAbsolute(path) ? path : join(sandboxPath, path);
+}
+
+function compareExpectedResult(
+  rows: unknown[],
+  expected: unknown
+): { passed: boolean; comment: string } {
+  if (Array.isArray(expected)) {
+    const passed = isDeepStrictEqual(rows, expected);
+    return {
+      passed,
+      comment: passed
+        ? "Database rows matched expected"
+        : `Expected ${formatValue(expected)}, got ${formatValue(rows.slice(0, 3))}`,
+    };
+  }
+
+  if (expected && typeof expected === "object") {
+    if (rows.length === 0) {
+      return { passed: false, comment: "No rows returned" };
+    }
+
+    const passed = isDeepStrictEqual(rows[0], expected);
+    return {
+      passed,
+      comment: passed
+        ? "Database row matched expected"
+        : `Expected ${formatValue(expected)}, got ${formatValue(rows[0])}`,
+    };
+  }
+
+  if (rows.length === 0) {
+    return { passed: false, comment: "No rows returned" };
+  }
+
+  const firstRow = rows[0];
+  const value =
+    firstRow && typeof firstRow === "object"
+      ? Object.values(firstRow as Record<string, unknown>)[0]
+      : firstRow;
+  const passed = isDeepStrictEqual(value, expected);
+  return {
+    passed,
+    comment: passed
+      ? "Database value matched expected"
+      : `Expected ${formatValue(expected)}, got ${formatValue(value)}`,
+  };
+}
+
+function formatValue(value: unknown): string {
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  } catch {
+    return String(value);
   }
 }
 

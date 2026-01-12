@@ -508,6 +508,9 @@ For nuanced evaluation, use structured rubrics instead of simple pass/fail crite
 | `exit_code` | Check the exit code |
 | `environment_var` | Validate environment variables by name/value |
 | `process_running` | Verify a process is running by name |
+| `database_query_result` | Verify database query results (SQLite/Postgres) |
+
+`database_query_result` uses `sqlite://path/to.db` (relative to sandbox) or `postgres://` connection strings.
 
 ### Advanced Code Graders
 

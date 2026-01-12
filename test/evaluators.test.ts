@@ -3,6 +3,7 @@ import { runCodeEvaluator } from "../src/evaluators/code.js";
 import { createSandbox } from "../src/sandbox.js";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
+import { Database } from "bun:sqlite";
 import type { ToolCall } from "../src/types.js";
 
 const TEST_FIXTURES_DIR = join(import.meta.dir, "fixtures");
@@ -355,6 +356,62 @@ describe("code evaluator", () => {
 
       const feedback = await runCodeEvaluator(
         [{ type: "process_running", name: "definitely-not-running" }],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(false);
+
+      await sandbox.cleanup();
+    });
+  });
+
+  describe("database_query_result", () => {
+    test("passes when sqlite query matches", async () => {
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+      const dbPath = join(sandbox.path, "test.db");
+      const db = new Database(dbPath);
+      db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);");
+      db.exec("INSERT INTO users (id, name) VALUES (1, 'Ada');");
+      db.close();
+
+      const feedback = await runCodeEvaluator(
+        [
+          {
+            type: "database_query_result",
+            connection: "sqlite://test.db",
+            query: "SELECT name FROM users WHERE id = 1",
+            expected: { name: "Ada" },
+          },
+        ],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(true);
+
+      await sandbox.cleanup();
+    });
+
+    test("fails when sqlite query mismatches", async () => {
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+      const dbPath = join(sandbox.path, "test.db");
+      const db = new Database(dbPath);
+      db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);");
+      db.exec("INSERT INTO users (id, name) VALUES (2, 'Grace');");
+      db.close();
+
+      const feedback = await runCodeEvaluator(
+        [
+          {
+            type: "database_query_result",
+            connection: "sqlite://test.db",
+            query: "SELECT name FROM users WHERE id = 2",
+            expected: { name: "Ada" },
+          },
+        ],
         sandbox.path,
         [],
         0

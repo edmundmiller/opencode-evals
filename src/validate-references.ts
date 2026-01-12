@@ -24,7 +24,21 @@ export async function validateReferences(
   options: ReferenceValidationOptions = {}
 ): Promise<ReferenceValidationSummary> {
   const configText = await readFile(evalPath, "utf-8");
-  const config: EvalConfig = JSON.parse(configText);
+  const rawConfig = JSON.parse(configText) as Partial<EvalConfig>;
+
+  if (!rawConfig.dataset || !rawConfig.variants) {
+    console.log("  ⚠️  No dataset configured; skipping reference validation");
+    return {
+      eval_path: evalPath,
+      total_examples: 0,
+      reference_examples: 0,
+      failed_references: 0,
+      skipped_examples: 0,
+      skipped_llm: false,
+    };
+  }
+
+  const config = rawConfig as EvalConfig;
   const dataset = await loadDataset(config.dataset, dirname(evalPath));
   const variantNames = Object.keys(config.variants);
 
