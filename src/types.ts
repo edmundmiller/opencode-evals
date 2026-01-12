@@ -209,20 +209,67 @@ export interface ErrorHandlingConfig {
 
 export interface EvaluatorConfig {
   type: "code" | "llm-judge";
+  /** Weight for this evaluator in overall score (default: 1.0) */
+  weight?: number;
   // Code evaluator options
   assertions?: Assertion[];
   // LLM-judge options
   criteria?: string[];
+  /** Structured rubric for detailed grading (alternative to criteria) */
+  rubric?: RubricItem[];
   reference_free?: boolean; // Default: true
 }
 
+/**
+ * A rubric item defines a grading criterion with scoring levels.
+ * Based on Anthropic's eval best practices for structured grading.
+ */
+export interface RubricItem {
+  /** Short identifier for this criterion */
+  name: string;
+  /** Full description of what this criterion measures */
+  description: string;
+  /** Weight in overall score (default: 1.0) */
+  weight?: number;
+  /** Scoring levels from 0-4, each with description */
+  levels?: RubricLevel[];
+}
+
+/**
+ * A scoring level within a rubric item.
+ * Default scale: 0=None, 1=Poor, 2=Fair, 3=Good, 4=Excellent
+ */
+export interface RubricLevel {
+  /** Score value (0-4) */
+  score: number;
+  /** Label for this level (e.g., "Excellent", "Good", "Fair") */
+  label: string;
+  /** Description of what this score means */
+  description: string;
+}
+
+/** Default rubric levels if not specified */
+export const DEFAULT_RUBRIC_LEVELS: RubricLevel[] = [
+  { score: 0, label: "None", description: "Criterion not addressed at all" },
+  { score: 1, label: "Poor", description: "Minimal attempt, major issues" },
+  { score: 2, label: "Fair", description: "Partial completion, some issues" },
+  { score: 3, label: "Good", description: "Mostly complete, minor issues" },
+  { score: 4, label: "Excellent", description: "Fully meets or exceeds expectations" },
+];
+
 export type Assertion =
-  | { type: "file_exists"; path: string }
-  | { type: "file_contains"; path: string; pattern: string }
-  | { type: "file_not_contains"; path: string; pattern: string }
-  | { type: "tool_called"; name: string; args?: Record<string, unknown> }
-  | { type: "tool_not_called"; name: string }
-  | { type: "exit_code"; expected: number };
+  | { type: "file_exists"; path: string; weight?: number }
+  | { type: "file_contains"; path: string; pattern: string; weight?: number }
+  | { type: "file_not_contains"; path: string; pattern: string; weight?: number }
+  | { type: "tool_called"; name: string; args?: Record<string, unknown>; weight?: number }
+  | { type: "tool_not_called"; name: string; weight?: number }
+  | { type: "exit_code"; expected: number; weight?: number }
+  // Advanced code graders
+  | { type: "no_lint_errors"; paths?: string[]; config?: string; weight?: number }
+  | { type: "no_type_errors"; tsconfig?: string; weight?: number }
+  | { type: "no_security_issues"; paths?: string[]; weight?: number }
+  | { type: "tool_call_sequence"; sequence: string[]; strict?: boolean; weight?: number }
+  | { type: "performance"; metric: "tokens" | "duration" | "tool_calls"; max: number; weight?: number };
 
 // ============================================================================
 // OpenCode Event Stream (from opencode run --format json)
@@ -334,9 +381,18 @@ export interface ExampleResult {
 
 export interface Feedback {
   key: string;
-  score: number; // 0-1
+  /** Raw score (0-1 for simple, 0-4 for rubric-based) */
+  score: number;
+  /** Normalized score (0-1) for aggregation */
+  normalized_score: number;
+  /** Weight applied to this feedback (default: 1.0) */
+  weight: number;
+  /** Weighted contribution to overall score */
+  weighted_score: number;
   passed: boolean;
   comment?: string;
+  /** Rubric level selected (if rubric-based grading) */
+  rubric_level?: string;
 }
 
 export interface ExperimentSummary {

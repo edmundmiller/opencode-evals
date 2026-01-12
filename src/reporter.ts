@@ -84,9 +84,25 @@ export function generateMarkdownReport(experiments: Experiment[]): string {
         lines.push("");
         for (const fb of result.feedback) {
           const fbIcon = fb.passed ? "✓" : "✗";
-          lines.push(`- ${fbIcon} \`${fb.key}\`: ${fb.comment ?? ""}`);
+          const scoreInfo = fb.weight !== 1 
+            ? ` (score: ${fb.normalized_score.toFixed(2)}, weight: ${fb.weight.toFixed(1)})`
+            : fb.normalized_score < 1 && fb.normalized_score > 0
+              ? ` (score: ${fb.normalized_score.toFixed(2)})`
+              : "";
+          const levelInfo = fb.rubric_level ? ` [${fb.rubric_level}]` : "";
+          lines.push(`- ${fbIcon} \`${fb.key}\`${levelInfo}${scoreInfo}: ${fb.comment ?? ""}`);
         }
         lines.push("");
+        
+        // Show weighted total if there are weighted criteria
+        const hasWeights = result.feedback.some(f => f.weight !== 1);
+        if (hasWeights) {
+          const totalWeight = result.feedback.reduce((sum, f) => sum + f.weight, 0);
+          const weightedSum = result.feedback.reduce((sum, f) => sum + f.weighted_score, 0);
+          const weightedAvg = totalWeight > 0 ? weightedSum / totalWeight : 0;
+          lines.push(`**Weighted Score:** ${(weightedAvg * 100).toFixed(1)}%`);
+          lines.push("");
+        }
       }
 
       if (result.outputs.tool_calls.length > 0) {

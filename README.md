@@ -334,7 +334,49 @@ import {
 | `workingCopy` | object | Working copy changes to create |
 | `orphan` | object | Orphan scenario configuration |
 
+## Rubric-Based Grading
+
+For nuanced evaluation, use structured rubrics instead of simple pass/fail criteria:
+
+```jsonc
+{
+  "evaluators": [
+    {
+      "type": "llm-judge",
+      "rubric": [
+        {
+          "name": "correctness",
+          "description": "Does the code correctly implement the requested functionality?",
+          "weight": 2.0,
+          "levels": [
+            { "score": 0, "label": "None", "description": "No attempt or completely wrong" },
+            { "score": 1, "label": "Poor", "description": "Major bugs or missing functionality" },
+            { "score": 2, "label": "Fair", "description": "Partial implementation with issues" },
+            { "score": 3, "label": "Good", "description": "Works correctly with minor issues" },
+            { "score": 4, "label": "Excellent", "description": "Fully correct and handles edge cases" }
+          ]
+        },
+        {
+          "name": "code_quality",
+          "description": "Is the code clean, readable, and well-structured?",
+          "weight": 1.0
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Rubric Features
+
+- **Weighted scoring**: Assign different weights to criteria (e.g., correctness 2x more important than style)
+- **Granular levels**: 0-4 scale with descriptions for consistent grading
+- **Default levels**: If `levels` is omitted, uses standard None/Poor/Fair/Good/Excellent scale
+- **Partial credit**: Scores are normalized and weighted for final aggregate score
+
 ## Assertion Types
+
+### Basic Assertions
 
 | Type | Description |
 |------|-------------|
@@ -344,6 +386,33 @@ import {
 | `tool_called` | Check if a specific tool was invoked |
 | `tool_not_called` | Check if a tool was NOT invoked |
 | `exit_code` | Check the exit code |
+
+### Advanced Code Graders
+
+| Type | Description |
+|------|-------------|
+| `no_lint_errors` | Run ESLint and check for errors |
+| `no_type_errors` | Run TypeScript compiler and check for type errors |
+| `no_security_issues` | Scan for hardcoded secrets, API keys, etc. |
+| `tool_call_sequence` | Verify tools were called in a specific order |
+| `performance` | Check metrics like tool call count against thresholds |
+
+### Weighted Assertions
+
+All assertions support an optional `weight` parameter for partial credit:
+
+```jsonc
+{
+  "type": "code",
+  "assertions": [
+    { "type": "file_exists", "path": "src/index.ts", "weight": 1.0 },
+    { "type": "no_type_errors", "weight": 2.0 },
+    { "type": "no_lint_errors", "weight": 0.5 },
+    { "type": "tool_call_sequence", "sequence": ["read", "edit", "bash"], "weight": 1.0 },
+    { "type": "performance", "metric": "tool_calls", "max": 10, "weight": 0.5 }
+  ]
+}
+```
 
 ## Plugin Usage
 

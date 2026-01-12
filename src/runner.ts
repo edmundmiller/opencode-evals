@@ -99,6 +99,9 @@ export async function runEval(
             {
               key: "error",
               score: 0,
+              normalized_score: 0,
+              weight: 1,
+              weighted_score: 0,
               passed: false,
               comment: String(error),
             },
@@ -361,15 +364,19 @@ function aggregateTrialFeedback(trials: TrialResult[]): Feedback[] {
   // Aggregate each key
   const aggregated: Feedback[] = [];
   for (const [key, feedbacks] of feedbackByKey) {
-    const scores = feedbacks.map(f => f.score);
+    const scores = feedbacks.map(f => f.normalized_score);
     const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
     const minScore = Math.min(...scores);
     const maxScore = Math.max(...scores);
     const passCount = feedbacks.filter(f => f.passed).length;
+    const avgWeight = feedbacks.reduce((sum, f) => sum + f.weight, 0) / feedbacks.length;
 
     aggregated.push({
       key,
       score: avgScore,
+      normalized_score: avgScore,
+      weight: avgWeight,
+      weighted_score: avgScore * avgWeight,
       passed: passCount > 0, // Pass if any trial passed this criterion
       comment: trials.length > 1
         ? `Avg: ${avgScore.toFixed(2)} (${passCount}/${feedbacks.length} passed, range: ${minScore.toFixed(2)}-${maxScore.toFixed(2)})`
