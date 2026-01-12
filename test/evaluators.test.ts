@@ -4,6 +4,8 @@ import { createSandbox } from "../src/sandbox.js";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
 import { Database } from "bun:sqlite";
+import { Client } from "pg";
+import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import type { ToolCall } from "../src/types.js";
 
 const TEST_FIXTURES_DIR = join(import.meta.dir, "fixtures");
@@ -420,6 +422,38 @@ describe("code evaluator", () => {
       expect(feedback[0].passed).toBe(false);
 
       await sandbox.cleanup();
+    });
+
+    const shouldRunPostgres = process.env.TESTCONTAINERS === "1";
+    const itPostgres = shouldRunPostgres ? test : test.skip;
+
+    itPostgres("passes when postgres query matches", async () => {
+      const container = await new PostgreSqlContainer("postgres:16-alpine").start();
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+      const client = new Client({ connectionString: container.getConnectionUri() });
+      await client.connect();
+      await client.query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);");
+      await client.query("INSERT INTO users (id, name) VALUES (1, 'Ada');");
+
+      const feedback = await runCodeEvaluator(
+        [
+          {
+            type: "database_query_result",
+            connection: container.getConnectionUri(),
+            query: "SELECT name FROM users WHERE id = 1",
+            expected: { name: "Ada" },
+          },
+        ],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(true);
+
+      await client.end();
+      await sandbox.cleanup();
+      await container.stop();
     });
   });
 });
