@@ -509,8 +509,11 @@ For nuanced evaluation, use structured rubrics instead of simple pass/fail crite
 | `environment_var` | Validate environment variables by name/value |
 | `process_running` | Verify a process is running by name |
 | `database_query_result` | Verify database query results (SQLite/Postgres) |
+| `http_request_made` | Check for captured HTTP requests by URL/method |
+| `api_called` | Validate API endpoint calls and request bodies |
 
 `database_query_result` uses `sqlite://path/to.db` (relative to sandbox) or `postgres://` connection strings.
+`http_request_made` and `api_called` are derived from captured `webfetch` tool calls.
 
 ### Advanced Code Graders
 

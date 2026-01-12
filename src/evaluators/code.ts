@@ -4,7 +4,7 @@ import { exec } from "node:child_process";
 import { promisify, isDeepStrictEqual } from "node:util";
 import { Database } from "bun:sqlite";
 import { Client } from "pg";
-import type { Assertion, Feedback, ToolCall } from "../types.js";
+import type { Assertion, Feedback, ToolCall, HttpRequest } from "../types.js";
 
 const execAsync = promisify(exec);
 let warnedToolCallSequence = false;
@@ -44,7 +44,8 @@ export async function runCodeEvaluator(
   assertions: Assertion[],
   sandboxPath: string,
   toolCalls: ToolCall[],
-  exitCode: number
+  exitCode: number,
+  httpRequests: HttpRequest[] = []
 ): Promise<Feedback[]> {
   const feedback: Feedback[] = [];
 
@@ -53,7 +54,8 @@ export async function runCodeEvaluator(
       assertion,
       sandboxPath,
       toolCalls,
-      exitCode
+      exitCode,
+      httpRequests
     );
     feedback.push(result);
   }
@@ -65,7 +67,8 @@ async function evaluateAssertion(
   assertion: Assertion,
   sandboxPath: string,
   toolCalls: ToolCall[],
-  exitCode: number
+  exitCode: number,
+  httpRequests: HttpRequest[]
 ): Promise<Feedback> {
   const weight = getWeight(assertion);
 
@@ -112,6 +115,23 @@ async function evaluateAssertion(
         assertion.query,
         assertion.expected,
         sandboxPath,
+        weight
+      );
+
+    case "http_request_made":
+      return evaluateHttpRequestMade(
+        assertion.url,
+        assertion.method,
+        httpRequests,
+        weight
+      );
+
+    case "api_called":
+      return evaluateApiCalled(
+        assertion.endpoint,
+        assertion.method,
+        assertion.body,
+        httpRequests,
         weight
       );
 
@@ -467,6 +487,99 @@ function formatValue(value: unknown): string {
     return text.length > 200 ? `${text.slice(0, 200)}…` : text;
   } catch {
     return String(value);
+  }
+}
+
+function evaluateHttpRequestMade(
+  urlPattern: string,
+  method: string | undefined,
+  requests: HttpRequest[],
+  weight: number
+): Feedback {
+  const key = "http_request_made";
+  const targetMethod = method ? method.toUpperCase() : undefined;
+
+  const matches = requests.filter((request) => {
+    if (!matchUrlPattern(urlPattern, request.url)) {
+      return false;
+    }
+
+    if (targetMethod && request.method !== targetMethod) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const passed = matches.length > 0;
+  return createFeedback(
+    key,
+    passed ? 1 : 0,
+    weight,
+    passed,
+    passed
+      ? `Matched ${matches.length} request(s) for ${targetMethod ?? "ANY"} ${urlPattern}`
+      : `No matching request for ${targetMethod ?? "ANY"} ${urlPattern}`
+  );
+}
+
+function evaluateApiCalled(
+  endpoint: string,
+  method: string | undefined,
+  body: unknown,
+  requests: HttpRequest[],
+  weight: number
+): Feedback {
+  const key = "api_called";
+  const targetMethod = method ? method.toUpperCase() : undefined;
+
+  const matches = requests.filter((request) => {
+    if (!matchEndpoint(endpoint, request.url)) {
+      return false;
+    }
+
+    if (targetMethod && request.method !== targetMethod) {
+      return false;
+    }
+
+    if (body !== undefined && !isDeepStrictEqual(request.body, body)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const passed = matches.length > 0;
+  return createFeedback(
+    key,
+    passed ? 1 : 0,
+    weight,
+    passed,
+    passed
+      ? `Matched ${matches.length} API call(s) for ${targetMethod ?? "ANY"} ${endpoint}`
+      : `No matching API call for ${targetMethod ?? "ANY"} ${endpoint}`
+  );
+}
+
+function matchEndpoint(endpoint: string, url: string): boolean {
+  if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+    return matchUrlPattern(endpoint, url);
+  }
+
+  try {
+    const parsed = new URL(url);
+    return matchUrlPattern(endpoint, parsed.pathname);
+  } catch {
+    return matchUrlPattern(endpoint, url);
+  }
+}
+
+function matchUrlPattern(pattern: string, url: string): boolean {
+  try {
+    const regex = new RegExp(pattern);
+    return regex.test(url);
+  } catch {
+    return url.includes(pattern);
   }
 }
 

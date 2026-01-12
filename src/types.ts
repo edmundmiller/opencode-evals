@@ -365,6 +365,19 @@ export type Assertion =
       expected: unknown;
       weight?: number;
     }
+  | {
+      type: "http_request_made";
+      url: string;
+      method?: string;
+      weight?: number;
+    }
+  | {
+      type: "api_called";
+      endpoint: string;
+      method?: string;
+      body?: unknown;
+      weight?: number;
+    }
   // Advanced code graders
   | { type: "no_lint_errors"; paths?: string[]; config?: string; weight?: number }
   | { type: "no_type_errors"; tsconfig?: string; weight?: number }
@@ -422,6 +435,14 @@ export interface ToolCall {
   duration_ms: number;
 }
 
+export interface HttpRequest {
+  url: string;
+  method: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  tool?: string;
+}
+
 // ============================================================================
 // Results & Experiments
 // ============================================================================
@@ -446,6 +467,7 @@ export interface TrialResult {
     events: OpenCodeEvent[];
     final_files: Record<string, string>;
     tool_calls: ToolCall[];
+    http_requests: HttpRequest[];
     exit_code: number;
     tokens_used: number;
     cost: number;
@@ -467,6 +489,7 @@ export interface ExampleResult {
     events: OpenCodeEvent[];
     final_files: Record<string, string>;
     tool_calls: ToolCall[];
+    http_requests: HttpRequest[];
     exit_code: number;
     tokens_used: number;
     cost: number;

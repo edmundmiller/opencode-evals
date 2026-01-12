@@ -1,8 +1,9 @@
-import type { ToolCall } from "./types.js";
+import type { ToolCall, HttpRequest } from "./types.js";
 
 export interface CaptureResult {
   events: NdjsonEvent[];
   tool_calls: ToolCall[];
+  http_requests: HttpRequest[];
   tokens_used: number;
   cost: number;
   duration_ms: number;
@@ -73,6 +74,7 @@ export async function runOpenCode(
   // Parse NDJSON events
   const events: NdjsonEvent[] = [];
   const tool_calls: ToolCall[] = [];
+  const http_requests: HttpRequest[] = [];
   let tokens_used = 0;
   let cost = 0;
 
@@ -110,6 +112,11 @@ export async function runOpenCode(
             timestamp: part.state.time?.start ?? Date.now(),
             duration_ms: duration,
           });
+
+          const httpRequest = buildHttpRequest(part.tool, part.state.input);
+          if (httpRequest) {
+            http_requests.push(httpRequest);
+          }
         }
       }
 
@@ -145,9 +152,55 @@ export async function runOpenCode(
   return {
     events,
     tool_calls,
+    http_requests,
     tokens_used,
     cost,
     duration_ms,
     exit_code,
   };
+}
+
+const HTTP_TOOL_NAMES = new Set(["webfetch", "fetch", "http", "https"]);
+
+function buildHttpRequest(tool: string, input: unknown): HttpRequest | null {
+  if (!HTTP_TOOL_NAMES.has(tool)) {
+    return null;
+  }
+
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const record = input as Record<string, unknown>;
+  const url = record.url;
+  if (typeof url !== "string") {
+    return null;
+  }
+
+  const method = typeof record.method === "string" ? record.method : "GET";
+  const headers = normalizeHeaders(record.headers);
+  const body = record.body ?? record.data ?? record.payload ?? record.json;
+
+  return {
+    url,
+    method: method.toUpperCase(),
+    headers,
+    body,
+    tool,
+  };
+}
+
+function normalizeHeaders(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof headerValue === "string") {
+      headers[key] = headerValue;
+    }
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }

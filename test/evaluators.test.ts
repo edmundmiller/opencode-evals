@@ -456,4 +456,96 @@ describe("code evaluator", () => {
       await container.stop();
     });
   });
+
+  describe("http_request_made", () => {
+    test("passes when request matches url and method", async () => {
+      const feedback = await runCodeEvaluator(
+        [{ type: "http_request_made", url: "api.example.com", method: "GET" }],
+        ".",
+        [],
+        0,
+        [
+          {
+            url: "https://api.example.com/v1/users",
+            method: "GET",
+            tool: "webfetch",
+          },
+        ]
+      );
+
+      expect(feedback[0].passed).toBe(true);
+    });
+
+    test("fails when request is missing", async () => {
+      const feedback = await runCodeEvaluator(
+        [{ type: "http_request_made", url: "api.example.com", method: "POST" }],
+        ".",
+        [],
+        0,
+        [
+          {
+            url: "https://api.example.com/v1/users",
+            method: "GET",
+            tool: "webfetch",
+          },
+        ]
+      );
+
+      expect(feedback[0].passed).toBe(false);
+    });
+  });
+
+  describe("api_called", () => {
+    test("passes when endpoint and body match", async () => {
+      const feedback = await runCodeEvaluator(
+        [
+          {
+            type: "api_called",
+            endpoint: "/v1/users",
+            method: "POST",
+            body: { name: "Ada" },
+          },
+        ],
+        ".",
+        [],
+        0,
+        [
+          {
+            url: "https://api.example.com/v1/users",
+            method: "POST",
+            body: { name: "Ada" },
+            tool: "webfetch",
+          },
+        ]
+      );
+
+      expect(feedback[0].passed).toBe(true);
+    });
+
+    test("fails when body does not match", async () => {
+      const feedback = await runCodeEvaluator(
+        [
+          {
+            type: "api_called",
+            endpoint: "/v1/users",
+            method: "POST",
+            body: { name: "Ada" },
+          },
+        ],
+        ".",
+        [],
+        0,
+        [
+          {
+            url: "https://api.example.com/v1/users",
+            method: "POST",
+            body: { name: "Grace" },
+            tool: "webfetch",
+          },
+        ]
+      );
+
+      expect(feedback[0].passed).toBe(false);
+    });
+  });
 });

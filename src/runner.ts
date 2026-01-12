@@ -271,6 +271,7 @@ function createErrorResult(
       events: [],
       final_files: {},
       tool_calls: [],
+      http_requests: [],
       exit_code: -1,
       tokens_used: 0,
       cost: 0,
@@ -505,7 +506,8 @@ async function runSingleTrial(
           evaluator.assertions,
           sandbox.path,
           captureResult.tool_calls,
-          captureResult.exit_code
+          captureResult.exit_code,
+          captureResult.http_requests
         );
         feedback.push(...codeResults);
       }
@@ -534,6 +536,7 @@ async function runSingleTrial(
         events: captureResult.events,
         final_files,
         tool_calls: captureResult.tool_calls,
+        http_requests: captureResult.http_requests,
         exit_code: captureResult.exit_code,
         tokens_used: captureResult.tokens_used,
         cost: captureResult.cost,
@@ -624,7 +627,7 @@ function calculateSummary(results: ExampleResult[]): ExperimentSummary {
   const allFeedback = results.flatMap((r) => r.feedback);
   const avg_score =
     allFeedback.length > 0
-      ? allFeedback.reduce((sum, f) => sum + f.score, 0) / allFeedback.length
+      ? allFeedback.reduce((sum, f) => sum + (f.score ?? 0), 0) / allFeedback.length
       : 0;
 
   // Sum tokens/cost/duration across ALL trials
