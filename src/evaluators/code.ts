@@ -98,6 +98,12 @@ async function evaluateAssertion(
     case "exit_code":
       return evaluateExitCode(assertion.expected, exitCode, weight);
 
+    case "environment_var":
+      return evaluateEnvironmentVar(assertion.name, assertion.value, assertion.exists, weight);
+
+    case "process_running":
+      return evaluateProcessRunning(assertion.name, assertion.match ?? "exact", weight);
+
     // Advanced graders
     case "no_lint_errors":
       return evaluateLint(sandboxPath, assertion.paths, assertion.config, weight);
@@ -236,6 +242,92 @@ function evaluateExitCode(expected: number, actual: number, weight: number): Fee
       ? `Exit code matches: ${expected}`
       : `Exit code mismatch: expected ${expected}, got ${actual}`
   );
+}
+
+function evaluateEnvironmentVar(
+  name: string,
+  expectedValue: string | undefined,
+  exists: boolean | undefined,
+  weight: number
+): Feedback {
+  const key = `environment_var:${name}`;
+  const actualValue = process.env[name];
+  const hasValue = actualValue !== undefined;
+  const shouldExist = exists ?? true;
+
+  if (!shouldExist) {
+    const passed = !hasValue;
+    return createFeedback(
+      key,
+      passed ? 1 : 0,
+      weight,
+      passed,
+      passed ? `Env var not set: ${name}` : `Env var was set: ${name}`
+    );
+  }
+
+  if (expectedValue !== undefined) {
+    const passed = actualValue === expectedValue;
+    return createFeedback(
+      key,
+      passed ? 1 : 0,
+      weight,
+      passed,
+      passed ? `Env var matched: ${name}` : `Env var value did not match for ${name}`
+    );
+  }
+
+  const passed = hasValue;
+  return createFeedback(
+    key,
+    passed ? 1 : 0,
+    weight,
+    passed,
+    passed ? `Env var set: ${name}` : `Env var missing: ${name}`
+  );
+}
+
+async function evaluateProcessRunning(
+  name: string,
+  match: "exact" | "contains",
+  weight: number
+): Promise<Feedback> {
+  const key = `process_running:${name}`;
+  const target = name.toLowerCase();
+
+  try {
+    const { stdout } = await execAsync("ps -A -o comm=,args=", { timeout: 5000 });
+    const lines = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+
+    const found = lines.some((line) => {
+      const [command, ...rest] = line.split(/\s+/);
+      const args = rest.join(" ");
+      const commandLower = command?.toLowerCase() ?? "";
+      const argsLower = args.toLowerCase();
+
+      if (match === "exact") {
+        return commandLower === target;
+      }
+
+      return commandLower.includes(target) || argsLower.includes(target);
+    });
+
+    return createFeedback(
+      key,
+      found ? 1 : 0,
+      weight,
+      found,
+      found ? `Process running: ${name}` : `Process not running: ${name}`
+    );
+  } catch {
+    return createFeedback(
+      key,
+      0,
+      weight,
+      false,
+      "Failed to inspect running processes"
+    );
+  }
 }
 
 // ============================================================================

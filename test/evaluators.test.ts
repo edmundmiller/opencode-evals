@@ -294,4 +294,75 @@ describe("code evaluator", () => {
       await sandbox.cleanup();
     });
   });
+
+  describe("environment_var", () => {
+    test("passes when env var matches", async () => {
+      process.env.OPENCODE_EVAL_TEST_VAR = "present";
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+
+      const feedback = await runCodeEvaluator(
+        [{ type: "environment_var", name: "OPENCODE_EVAL_TEST_VAR", value: "present" }],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(true);
+
+      await sandbox.cleanup();
+      delete process.env.OPENCODE_EVAL_TEST_VAR;
+    });
+
+    test("passes when env var is not set", async () => {
+      delete process.env.OPENCODE_EVAL_MISSING_VAR;
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+
+      const feedback = await runCodeEvaluator(
+        [{ type: "environment_var", name: "OPENCODE_EVAL_MISSING_VAR", exists: false }],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(true);
+
+      await sandbox.cleanup();
+    });
+  });
+
+  describe("process_running", () => {
+    test("passes when process is running", async () => {
+      const proc = Bun.spawn(["sleep", "5"]);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+
+      const feedback = await runCodeEvaluator(
+        [{ type: "process_running", name: "sleep" }],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(true);
+
+      proc.kill();
+      await proc.exited;
+      await sandbox.cleanup();
+    });
+
+    test("fails when process is not running", async () => {
+      const sandbox = await createSandbox(undefined, "default", TEST_FIXTURES_DIR);
+
+      const feedback = await runCodeEvaluator(
+        [{ type: "process_running", name: "definitely-not-running" }],
+        sandbox.path,
+        [],
+        0
+      );
+
+      expect(feedback[0].passed).toBe(false);
+
+      await sandbox.cleanup();
+    });
+  });
 });

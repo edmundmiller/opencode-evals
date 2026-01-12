@@ -504,6 +504,8 @@ For nuanced evaluation, use structured rubrics instead of simple pass/fail crite
 | `tool_called` | Check if a specific tool was invoked |
 | `tool_not_called` | Check if a tool was NOT invoked |
 | `exit_code` | Check the exit code |
+| `environment_var` | Validate environment variables by name/value |
+| `process_running` | Verify a process is running by name |
 
 ### Advanced Code Graders
 

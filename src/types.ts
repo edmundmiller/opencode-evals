@@ -356,6 +356,8 @@ export type Assertion =
   | { type: "tool_called"; name: string; args?: Record<string, unknown>; weight?: number }
   | { type: "tool_not_called"; name: string; weight?: number }
   | { type: "exit_code"; expected: number; weight?: number }
+  | { type: "environment_var"; name: string; value?: string; exists?: boolean; weight?: number }
+  | { type: "process_running"; name: string; match?: "exact" | "contains"; weight?: number }
   // Advanced code graders
   | { type: "no_lint_errors"; paths?: string[]; config?: string; weight?: number }
   | { type: "no_type_errors"; tsconfig?: string; weight?: number }
