@@ -519,6 +519,149 @@ All assertions support an optional `weight` parameter for partial credit:
 }
 ```
 
+## Human Grading Workflow
+
+For high-stakes evaluations, combine LLM judges with human review:
+
+### Export Tasks for Human Review
+
+```bash
+# Export all examples for review
+opencode-eval export-review results.json --output-dir reviews/
+
+# Export only failed examples
+opencode-eval export-review results.json --failed-only
+
+# Random sample for spot-checking
+opencode-eval export-review results.json --sample 50 --seed 42
+
+# Export as CSV for spreadsheet review
+opencode-eval export-review results.json --format csv
+```
+
+### Import Human Reviews
+
+```bash
+# Import completed reviews and calculate agreement
+opencode-eval import-review reviews/completed.json results.json
+
+# Output as markdown report
+opencode-eval import-review reviews/completed.json results.json -o agreement.md
+```
+
+### Calibrate LLM Judge
+
+```bash
+# Compare LLM grades against human grades
+opencode-eval calibrate reviews/completed.json results.json
+
+# Specify the judge model
+opencode-eval calibrate reviews.json results.json --model claude-3-opus-20240229
+```
+
+### Inter-Rater Agreement Metrics
+
+The framework calculates:
+
+| Metric | Description | Good Value |
+|--------|-------------|------------|
+| Cohen's Kappa | Pass/fail agreement | > 0.6 |
+| Score Correlation | Numeric score correlation | > 0.7 |
+| Avg Score Difference | Mean absolute difference | < 0.5 |
+| Exact Match Rate | Identical scores | > 50% |
+
+### Best Practices
+
+1. **Start with samples**: Export 20-50 examples for initial calibration
+2. **Use multiple reviewers**: Calculate agreement before trusting a single reviewer
+3. **Calibrate regularly**: Re-calibrate LLM judges when criteria change
+4. **Document anchors**: Provide score-level descriptions for consistency
+
+## Production Monitoring
+
+Monitor production quality and convert failures to eval cases:
+
+### Convert Failures to Evals
+
+```bash
+# Parse production logs and create eval examples from failures
+opencode-eval failures-to-evals production.ndjson -o new-evals.json
+
+# Only high-confidence failures
+opencode-eval failures-to-evals production.ndjson --min-confidence 0.8
+
+# Include abandoned sessions
+opencode-eval failures-to-evals production.ndjson --include-abandoned
+
+# Limit output
+opencode-eval failures-to-evals production.ndjson --max-examples 100
+```
+
+### Detect Regressions
+
+```bash
+# Compare current results against baseline
+opencode-eval regression baseline.json current.json
+
+# Custom thresholds
+opencode-eval regression baseline.json current.json \
+  --warning-threshold 0.05 \
+  --critical-threshold 0.15
+```
+
+Regression alerts:
+
+| Alert Type | Trigger | Exit Code |
+|------------|---------|-----------|
+| `pass_rate_drop` | Pass rate decreases | 1 if critical |
+| `score_decline` | Average score drops | 1 if critical |
+| `latency_increase` | Response time increases | 1 if critical |
+| `cost_increase` | Token costs increase | 1 if critical |
+
+### Quality Dashboard
+
+```bash
+# Generate quality dashboard
+opencode-eval dashboard results.json
+
+# Last 7 days only
+opencode-eval dashboard results.json --days 7
+
+# Export as JSON for integration
+opencode-eval dashboard results.json --format json -o dashboard.json
+```
+
+Dashboard includes:
+- Summary metrics (success rate, avg score, latency, cost)
+- Trend charts over time
+- Active regression alerts
+- Top failure categories
+
+### CI/CD Integration
+
+```yaml
+# GitHub Actions example
+- name: Run Evals
+  run: opencode-eval run evals/ -o results.json
+
+- name: Check for Regressions
+  run: opencode-eval regression baseline.json results.json
+
+- name: Update Baseline (on main)
+  if: github.ref == 'refs/heads/main'
+  run: cp results.json baseline.json
+```
+
+### Production Log Format
+
+The `failures-to-evals` command expects NDJSON format:
+
+```jsonc
+{"sessionID": "abc123", "type": "user_message", "query": "Fix the bug", "timestamp": 1234567890}
+{"sessionID": "abc123", "type": "tool_use", "name": "read", "timestamp": 1234567891}
+{"sessionID": "abc123", "type": "user_feedback", "thumbs": "down", "timestamp": 1234567900}
+```
+
 ## Plugin Usage
 
 Add as a dev dependency to your plugin:

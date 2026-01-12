@@ -522,6 +522,302 @@ export interface TrialMetrics {
 }
 
 // ============================================================================
+// Human Grading Workflow
+// ============================================================================
+
+/**
+ * A task exported for human review.
+ * Based on Anthropic's eval best practices for human-in-the-loop grading.
+ */
+export interface HumanReviewTask {
+  id: string;
+  eval_name: string;
+  example_id: string;
+  trial_number?: number;
+  /** The original query/prompt */
+  query: string;
+  /** Agent's response/output for review */
+  response: string;
+  /** Tool calls made (summarized) */
+  tool_calls_summary: string[];
+  /** Files created/modified */
+  files_changed: string[];
+  /** Reference output if available */
+  reference?: string;
+  /** Grading criteria to evaluate */
+  criteria: HumanGradingCriteria[];
+  /** Current status */
+  status: "pending" | "in_progress" | "completed" | "skipped";
+  /** Assigned reviewer */
+  assignee?: string;
+  /** Creation timestamp */
+  created_at: string;
+  /** Completion timestamp */
+  completed_at?: string;
+}
+
+/**
+ * A grading criterion for human reviewers.
+ */
+export interface HumanGradingCriteria {
+  name: string;
+  description: string;
+  /** Scoring scale (default: 0-4) */
+  scale: { min: number; max: number };
+  /** Optional anchor descriptions for each score level */
+  anchors?: Record<number, string>;
+}
+
+/**
+ * Human-provided grade for a single criterion.
+ */
+export interface HumanGrade {
+  criterion: string;
+  score: number;
+  comment?: string;
+  /** Time spent grading in seconds */
+  time_spent_s?: number;
+}
+
+/**
+ * Completed human review with all grades.
+ */
+export interface HumanReview {
+  task_id: string;
+  reviewer: string;
+  grades: HumanGrade[];
+  /** Overall pass/fail judgment */
+  passed: boolean;
+  /** Free-form notes */
+  notes?: string;
+  /** Timestamp of review */
+  reviewed_at: string;
+  /** Total time spent in seconds */
+  total_time_s?: number;
+}
+
+/**
+ * Inter-rater agreement metrics.
+ */
+export interface InterRaterAgreement {
+  /** Number of examples with multiple reviews */
+  overlapping_examples: number;
+  /** Cohen's Kappa for pass/fail agreement */
+  cohens_kappa: number;
+  /** Pearson correlation for numeric scores */
+  score_correlation: number;
+  /** Average absolute score difference */
+  avg_score_difference: number;
+  /** Percentage of exact score matches */
+  exact_match_rate: number;
+  /** Per-criterion agreement */
+  per_criterion: Record<string, { kappa: number; correlation: number }>;
+}
+
+/**
+ * LLM judge calibration results.
+ */
+export interface JudgeCalibration {
+  /** LLM judge model being calibrated */
+  judge_model: string;
+  /** Number of examples with both human and LLM grades */
+  calibration_examples: number;
+  /** Agreement between LLM and human graders */
+  agreement: {
+    pass_fail_accuracy: number;
+    score_correlation: number;
+    avg_score_difference: number;
+  };
+  /** Systematic biases detected */
+  biases: JudgeBias[];
+  /** Recommended adjustments */
+  recommendations: string[];
+}
+
+/**
+ * Detected bias in LLM judge.
+ */
+export interface JudgeBias {
+  type: "lenient" | "harsh" | "criterion_specific" | "inconsistent";
+  description: string;
+  magnitude: number;
+  affected_criterion?: string;
+}
+
+// ============================================================================
+// Production Monitoring
+// ============================================================================
+
+/**
+ * A production conversation/session that can be converted to an eval example.
+ */
+export interface ProductionSession {
+  id: string;
+  /** Original user query */
+  query: string;
+  /** Conversation events/transcript */
+  events: OpenCodeEvent[];
+  /** Files in the workspace */
+  files: Record<string, string>;
+  /** Outcome of the session */
+  outcome: ProductionOutcome;
+  /** Metadata about the session */
+  metadata: {
+    timestamp: string;
+    user_id?: string;
+    session_duration_ms: number;
+    model: string;
+    variant?: string;
+  };
+}
+
+/**
+ * Outcome classification for production sessions.
+ */
+export interface ProductionOutcome {
+  /** How the session ended */
+  status: "success" | "failure" | "abandoned" | "unknown";
+  /** Classification method */
+  classified_by: "user_feedback" | "heuristic" | "manual" | "llm";
+  /** Confidence in classification (0-1) */
+  confidence: number;
+  /** Specific failure category if failed */
+  failure_category?: string;
+  /** User feedback if available */
+  user_feedback?: {
+    rating?: number;
+    comment?: string;
+    thumbs?: "up" | "down";
+  };
+}
+
+/**
+ * Configuration for converting production failures to eval examples.
+ */
+export interface FailureToEvalConfig {
+  /** Minimum confidence to include */
+  min_confidence: number;
+  /** Failure categories to include */
+  include_categories?: string[];
+  /** Failure categories to exclude */
+  exclude_categories?: string[];
+  /** Whether to include abandoned sessions */
+  include_abandoned: boolean;
+  /** Maximum examples to generate */
+  max_examples?: number;
+  /** How to generate reference outputs */
+  reference_generation: "none" | "from_retry" | "manual" | "llm_generated";
+}
+
+/**
+ * A/B test configuration for comparing variants.
+ */
+export interface ABTestConfig {
+  name: string;
+  /** Variants being compared */
+  variants: string[];
+  /** Metrics to track */
+  metrics: ABMetric[];
+  /** Minimum sample size per variant */
+  min_samples: number;
+  /** Statistical significance threshold */
+  significance_level: number;
+}
+
+/**
+ * Metric tracked in A/B test.
+ */
+export interface ABMetric {
+  name: string;
+  type: "rate" | "average" | "percentile";
+  /** For rate metrics, what counts as success */
+  success_condition?: string;
+  /** For percentile metrics, which percentile */
+  percentile?: number;
+}
+
+/**
+ * Results of an A/B test.
+ */
+export interface ABTestResults {
+  config: ABTestConfig;
+  /** Per-variant results */
+  variants: Record<string, ABVariantResult>;
+  /** Statistical comparisons */
+  comparisons: ABComparison[];
+  /** Overall recommendation */
+  recommendation?: {
+    winner?: string;
+    confidence: number;
+    summary: string;
+  };
+}
+
+/**
+ * Results for a single variant in A/B test.
+ */
+export interface ABVariantResult {
+  variant: string;
+  sample_size: number;
+  metrics: Record<string, { value: number; ci_lower: number; ci_upper: number }>;
+}
+
+/**
+ * Statistical comparison between two variants.
+ */
+export interface ABComparison {
+  variant_a: string;
+  variant_b: string;
+  metric: string;
+  difference: number;
+  p_value: number;
+  significant: boolean;
+  effect_size: number;
+}
+
+/**
+ * Regression detection result.
+ */
+export interface RegressionAlert {
+  type: "pass_rate_drop" | "score_decline" | "latency_increase" | "cost_increase";
+  severity: "warning" | "critical";
+  metric: string;
+  baseline_value: number;
+  current_value: number;
+  change_percent: number;
+  detected_at: string;
+  affected_examples?: string[];
+  recommendation: string;
+}
+
+/**
+ * Quality monitoring dashboard data.
+ */
+export interface QualityDashboard {
+  /** Time range for the dashboard */
+  time_range: { start: string; end: string };
+  /** Overall metrics */
+  summary: {
+    total_sessions: number;
+    success_rate: number;
+    avg_score: number;
+    avg_latency_ms: number;
+    avg_cost: number;
+  };
+  /** Trend over time */
+  trends: {
+    date: string;
+    success_rate: number;
+    avg_score: number;
+    session_count: number;
+  }[];
+  /** Active regression alerts */
+  alerts: RegressionAlert[];
+  /** Top failure categories */
+  top_failures: { category: string; count: number; examples: string[] }[];
+}
+
+// ============================================================================
 // CLI Options
 // ============================================================================
 

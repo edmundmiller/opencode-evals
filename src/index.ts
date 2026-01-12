@@ -13,6 +13,22 @@ import {
   formatHealthReport,
   detectSaturation,
 } from "./analysis.js";
+import {
+  exportForHumanReview,
+  importHumanReviews,
+  calculateInterRaterAgreement,
+  calibrateLLMJudge,
+  formatAgreementReport,
+  formatCalibrationReport,
+} from "./human-grading.js";
+import {
+  convertFailuresToEvals,
+  parseProductionLogs,
+  detectRegressions,
+  generateDashboard,
+  formatDashboard,
+  exportDataset,
+} from "./production.js";
 import { getFixturesDir } from "./sandbox.js";
 import type { Experiment } from "./types.js";
 
@@ -292,6 +308,219 @@ program
     if (options.output) {
       await writeFile(options.output, output, "utf-8");
       console.log(`Difficulty analysis written to: ${options.output}`);
+    } else {
+      console.log(output);
+    }
+  });
+
+// ============================================================================
+// Human Grading Commands
+// ============================================================================
+
+// Export for human review
+program
+  .command("export-review <file>")
+  .description("Export experiment results for human review")
+  .option("-o, --output-dir <path>", "Output directory", ".evals/review")
+  .option("-f, --format <type>", "Output format (json|csv)", "json")
+  .option("--failed-only", "Only export failed examples")
+  .option("--sample <number>", "Random sample size", parseInt)
+  .option("--seed <number>", "Random seed for sampling", parseInt)
+  .option("--assignee <name>", "Pre-assign tasks to reviewer")
+  .action(async (file: string, options) => {
+    const experiments: Experiment[] = JSON.parse(await readFile(file, "utf-8"));
+
+    if (experiments.length === 0) {
+      console.error("No experiments found in file");
+      process.exit(1);
+    }
+
+    const { tasks, outputPath } = await exportForHumanReview(experiments, {
+      outputDir: options.outputDir,
+      format: options.format,
+      failedOnly: options.failedOnly,
+      sampleSize: options.sample,
+      seed: options.seed,
+      assignee: options.assignee,
+    });
+
+    console.log(`Exported ${tasks.length} review tasks to: ${outputPath}`);
+  });
+
+// Import human reviews
+program
+  .command("import-review <reviews-file> <experiments-file>")
+  .description("Import human reviews and calculate agreement metrics")
+  .option("-o, --output <path>", "Output report path")
+  .option("-f, --format <type>", "Output format (json|markdown)", "markdown")
+  .action(async (reviewsFile: string, experimentsFile: string, options) => {
+    const reviews = await importHumanReviews(reviewsFile);
+    const experiments: Experiment[] = JSON.parse(await readFile(experimentsFile, "utf-8"));
+
+    console.log(`Imported ${reviews.length} human reviews`);
+
+    // Calculate inter-rater agreement
+    const agreement = calculateInterRaterAgreement(reviews);
+
+    let output: string;
+    if (options.format === "json") {
+      output = JSON.stringify(agreement, null, 2);
+    } else {
+      output = formatAgreementReport(agreement);
+    }
+
+    if (options.output) {
+      await writeFile(options.output, output, "utf-8");
+      console.log(`Agreement report written to: ${options.output}`);
+    } else {
+      console.log(output);
+    }
+  });
+
+// Calibrate LLM judge
+program
+  .command("calibrate <reviews-file> <experiments-file>")
+  .description("Calibrate LLM judge against human reviews")
+  .option("-m, --model <name>", "Judge model name", "claude-3-haiku-20240307")
+  .option("-o, --output <path>", "Output report path")
+  .option("-f, --format <type>", "Output format (json|markdown)", "markdown")
+  .action(async (reviewsFile: string, experimentsFile: string, options) => {
+    const reviews = await importHumanReviews(reviewsFile);
+    const experiments: Experiment[] = JSON.parse(await readFile(experimentsFile, "utf-8"));
+
+    console.log(`Calibrating ${options.model} against ${reviews.length} human reviews...`);
+
+    const calibration = calibrateLLMJudge(experiments, reviews, options.model);
+
+    let output: string;
+    if (options.format === "json") {
+      output = JSON.stringify(calibration, null, 2);
+    } else {
+      output = formatCalibrationReport(calibration);
+    }
+
+    if (options.output) {
+      await writeFile(options.output, output, "utf-8");
+      console.log(`Calibration report written to: ${options.output}`);
+    } else {
+      console.log(output);
+    }
+  });
+
+// ============================================================================
+// Production Monitoring Commands
+// ============================================================================
+
+// Convert production failures to evals
+program
+  .command("failures-to-evals <logs-file>")
+  .description("Convert production failures to eval examples")
+  .option("-o, --output <path>", "Output dataset path", "production-failures.json")
+  .option("--min-confidence <number>", "Minimum classification confidence", parseFloat)
+  .option("--include-abandoned", "Include abandoned sessions")
+  .option("--max-examples <number>", "Maximum examples to generate", parseInt)
+  .option("--categories <list>", "Failure categories to include (comma-separated)")
+  .action(async (logsFile: string, options) => {
+    console.log(`Parsing production logs from: ${logsFile}`);
+    const sessions = await parseProductionLogs(logsFile);
+
+    console.log(`Found ${sessions.length} sessions`);
+
+    const failures = sessions.filter(s => s.outcome.status === "failure" || s.outcome.status === "abandoned");
+    console.log(`  - ${failures.length} failures/abandoned`);
+
+    const dataset = convertFailuresToEvals(sessions, {
+      min_confidence: options.minConfidence ?? 0.7,
+      include_abandoned: options.includeAbandoned ?? false,
+      max_examples: options.maxExamples,
+      include_categories: options.categories?.split(","),
+      reference_generation: "none",
+    });
+
+    await exportDataset(dataset, options.output);
+    console.log(`\nGenerated ${dataset.examples.length} eval examples`);
+    console.log(`Dataset written to: ${options.output}`);
+  });
+
+// Detect regressions
+program
+  .command("regression <baseline-file> <current-file>")
+  .description("Detect regressions between baseline and current results")
+  .option("--warning-threshold <number>", "Warning threshold (default: 0.1)", parseFloat)
+  .option("--critical-threshold <number>", "Critical threshold (default: 0.2)", parseFloat)
+  .option("-o, --output <path>", "Output alerts to file")
+  .action(async (baselineFile: string, currentFile: string, options) => {
+    const baseline: Experiment[] = JSON.parse(await readFile(baselineFile, "utf-8"));
+    const current: Experiment[] = JSON.parse(await readFile(currentFile, "utf-8"));
+
+    console.log(`Comparing ${baseline.length} baseline experiments to ${current.length} current experiments...`);
+
+    const alerts = detectRegressions(baseline, current, {
+      warning_threshold: options.warningThreshold,
+      critical_threshold: options.criticalThreshold,
+    });
+
+    if (alerts.length === 0) {
+      console.log("\n✅ No regressions detected");
+    } else {
+      console.log(`\n⚠️  ${alerts.length} regression alert(s) detected:\n`);
+
+      for (const alert of alerts) {
+        const icon = alert.severity === "critical" ? "🔴" : "🟡";
+        console.log(`${icon} ${alert.type.toUpperCase()}`);
+        console.log(`   Metric: ${alert.metric}`);
+        console.log(`   Baseline: ${alert.baseline_value.toFixed(3)} → Current: ${alert.current_value.toFixed(3)}`);
+        console.log(`   Change: ${alert.change_percent.toFixed(1)}%`);
+        console.log(`   ${alert.recommendation}\n`);
+      }
+
+      if (options.output) {
+        await writeFile(options.output, JSON.stringify(alerts, null, 2), "utf-8");
+        console.log(`Alerts written to: ${options.output}`);
+      }
+
+      // Exit with error if critical alerts
+      if (alerts.some(a => a.severity === "critical")) {
+        process.exit(1);
+      }
+    }
+  });
+
+// Quality dashboard
+program
+  .command("dashboard <file>")
+  .description("Generate quality monitoring dashboard")
+  .option("-o, --output <path>", "Output dashboard to file")
+  .option("-f, --format <type>", "Output format (json|markdown)", "markdown")
+  .option("--days <number>", "Number of days to include", parseInt)
+  .action(async (file: string, options) => {
+    const experiments: Experiment[] = JSON.parse(await readFile(file, "utf-8"));
+
+    if (experiments.length === 0) {
+      console.error("No experiments found in file");
+      process.exit(1);
+    }
+
+    // Calculate time range
+    let timeRange: { start: Date; end: Date } | undefined;
+    if (options.days) {
+      const end = new Date();
+      const start = new Date(end.getTime() - options.days * 24 * 60 * 60 * 1000);
+      timeRange = { start, end };
+    }
+
+    const dashboard = generateDashboard(experiments, timeRange);
+
+    let output: string;
+    if (options.format === "json") {
+      output = JSON.stringify(dashboard, null, 2);
+    } else {
+      output = formatDashboard(dashboard);
+    }
+
+    if (options.output) {
+      await writeFile(options.output, output, "utf-8");
+      console.log(`Dashboard written to: ${options.output}`);
     } else {
       console.log(output);
     }
