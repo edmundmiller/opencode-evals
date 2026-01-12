@@ -476,8 +476,8 @@ export interface ExampleResult {
 
 export interface Feedback {
   key: string;
-  /** Raw score (0-1 for simple, 0-4 for rubric-based) */
-  score: number;
+  /** Raw score (0-1 for simple, 0-4 for rubric-based, null if insufficient info) */
+  score: number | null;
   /** Normalized score (0-1) for aggregation */
   normalized_score: number;
   /** Weight applied to this feedback (default: 1.0) */

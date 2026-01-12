@@ -267,6 +267,8 @@ Based on [Anthropic's eval guidelines](https://www.anthropic.com/engineering/dem
 }
 ```
 
+LLM judges can return a null score when there is insufficient information; null scores are treated as failures with zero contribution to aggregate scoring.
+
 ## VCS Setup
 
 For evals that test git/version control workflows, use the `vcs` configuration to set up isolated repositories with commits, branches, and remotes.

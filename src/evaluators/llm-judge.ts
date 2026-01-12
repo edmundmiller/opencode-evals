@@ -152,14 +152,14 @@ export async function runLLMJudge(
  */
 function createFeedback(
   key: string,
-  score: number,
+  score: number | null,
   weight: number,
   passed: boolean,
   comment?: string,
   rubric_level?: string,
   maxScore: number = 1
 ): Feedback {
-  const normalized_score = maxScore > 0 ? score / maxScore : 0;
+  const normalized_score = score === null ? 0 : maxScore > 0 ? score / maxScore : 0;
   return {
     key,
     score,
@@ -231,13 +231,23 @@ ${JSON.stringify(referenceOutputs, null, 2)}
 
   prompt += `
 ## Your Task
-Evaluate the work against this rubric criterion. Select the most appropriate score level.
+Evaluate the work against this rubric criterion. Think through the evidence before choosing a score.
+Score 4 is reserved for truly excellent work; solid but imperfect work should be a 3.
+If there is insufficient information to judge, return a null score.
 Respond with a JSON object:
 {
-  "score": <number 0-${maxScore}>,
-  "level": "<label of the selected level>",
-  "comment": "Brief explanation of why this score was chosen"
+  "score": <number 0-${maxScore} or null>,
+  "level": "<label of the selected level> or \"Insufficient Information\"",
+  "comment": "Brief explanation with your key evidence"
 }
+
+Examples:
+{"score": 4, "level": "Excellent", "comment": "Exceeds requirements with robust edge-case handling."}
+{"score": 3, "level": "Good", "comment": "Meets core requirements with minor gaps."}
+{"score": 2, "level": "Fair", "comment": "Partial implementation; notable issues remain."}
+{"score": 1, "level": "Poor", "comment": "Minimal progress; major flaws."}
+{"score": 0, "level": "None", "comment": "No evidence of the requirement."}
+{"score": null, "level": "Insufficient Information", "comment": "Cannot determine from outputs."}
 
 Respond ONLY with the JSON object, no other text.`;
 
@@ -267,16 +277,20 @@ Respond ONLY with the JSON object, no other text.`;
     }
 
     const result = JSON.parse(text.trim());
-    const score = typeof result.score === "number" ? result.score : 0;
-    // Pass if score is >= 60% of max (level 3+ on 0-4 scale)
-    const passed = score >= maxScore * 0.6;
+    const score =
+      typeof result.score === "number"
+        ? result.score
+        : result.score === null
+          ? null
+          : 0;
+    const passed = score !== null && score >= maxScore * 0.6;
 
     return createFeedback(
       key,
       score,
       weight,
       passed,
-      result.comment,
+      result.comment ?? (score === null ? "Insufficient information" : undefined),
       result.level,
       maxScore
     );
@@ -330,12 +344,19 @@ ${JSON.stringify(referenceOutputs, null, 2)}
 
   prompt += `
 ## Your Task
-Evaluate whether the criterion was met. Respond with a JSON object:
+Evaluate whether the criterion was met. Think through the evidence before answering.
+If there is insufficient information to judge, return a null score.
+Respond with a JSON object:
 {
   "passed": true or false,
-  "score": 0.0 to 1.0 (confidence/quality score),
-  "comment": "Brief explanation of your judgment"
+  "score": 0.0 to 1.0 or null (confidence/quality score),
+  "comment": "Brief explanation with your key evidence"
 }
+
+Examples:
+{"passed": true, "score": 1.0, "comment": "Clear evidence the criterion was satisfied."}
+{"passed": false, "score": 0.0, "comment": "Outputs do not meet the criterion."}
+{"passed": false, "score": null, "comment": "Insufficient information to judge."}
 
 Respond ONLY with the JSON object, no other text.`;
 
@@ -369,14 +390,22 @@ Respond ONLY with the JSON object, no other text.`;
 
     // Parse JSON response
     const result = JSON.parse(text.trim());
-    const score = typeof result.score === "number" ? result.score : result.passed ? 1 : 0;
+    const score =
+      typeof result.score === "number"
+        ? result.score
+        : result.score === null
+          ? null
+          : result.passed
+            ? 1
+            : 0;
+    const passed = score !== null && typeof result.passed === "boolean" ? result.passed : false;
 
     return createFeedback(
       key,
       score,
       criterion.weight ?? 1.0,
-      Boolean(result.passed),
-      result.comment ?? undefined
+      passed,
+      result.comment ?? (score === null ? "Insufficient information" : undefined)
     );
   } catch (error) {
     return createFeedback(
