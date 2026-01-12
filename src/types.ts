@@ -360,6 +360,7 @@ export type Assertion =
   | { type: "no_lint_errors"; paths?: string[]; config?: string; weight?: number }
   | { type: "no_type_errors"; tsconfig?: string; weight?: number }
   | { type: "no_security_issues"; paths?: string[]; weight?: number }
+  /** @deprecated Use outcome-based assertions or rubrics instead. */
   | { type: "tool_call_sequence"; sequence: string[]; strict?: boolean; weight?: number }
   | { type: "performance"; metric: "tokens" | "duration" | "tool_calls"; max: number; weight?: number };
 

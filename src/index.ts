@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runEval } from "./runner.js";
+import { validateReferences } from "./validate-references.js";
 import {
   writeJSONReport,
   generateMarkdownReport,
@@ -120,6 +121,66 @@ program
     if (totalPassed < totalExamples) {
       process.exit(1);
     }
+  });
+
+// Validate reference outputs
+program
+  .command("validate-references <path>")
+  .description("Validate reference outputs against evaluators")
+  .option("--include-llm", "Run LLM judge evaluators")
+  .option("--require-references", "Fail if no reference outputs are found")
+  .option("--verbose", "Show per-example results")
+  .action(async (path: string, options) => {
+    const resolvedPath = resolve(path);
+    const evalFiles = await findEvalFiles(resolvedPath);
+
+    if (evalFiles.length === 0) {
+      console.error(`No eval files found at: ${resolvedPath}`);
+      process.exit(1);
+    }
+
+    let totalFailed = 0;
+    let totalReferences = 0;
+    let totalSkipped = 0;
+    let missingReferences = 0;
+    let skippedLLM = false;
+
+    for (const evalFile of evalFiles) {
+      console.log(`\n🔎 ${evalFile}`);
+      const summary = await validateReferences(evalFile, {
+        include_llm: options.includeLlm,
+        verbose: options.verbose,
+      });
+
+      totalFailed += summary.failed_references;
+      totalReferences += summary.reference_examples;
+      totalSkipped += summary.skipped_examples;
+      skippedLLM = skippedLLM || summary.skipped_llm;
+
+      if (summary.reference_examples === 0) {
+        missingReferences++;
+        console.log("  ⚠️  No reference outputs found");
+      } else {
+        const passed = summary.reference_examples - summary.failed_references;
+        console.log(`  ✅ ${passed}/${summary.reference_examples} reference examples passed`);
+      }
+    }
+
+    if (skippedLLM && !options.includeLlm) {
+      console.log("\n⚠️  LLM judges were skipped (use --include-llm to validate them)");
+    }
+
+    if (totalFailed > 0) {
+      console.error(`\n❌ ${totalFailed} reference example(s) failed validation`);
+      process.exit(1);
+    }
+
+    if (options.requireReferences && missingReferences > 0) {
+      console.error(`\n❌ ${missingReferences} eval(s) lack reference outputs`);
+      process.exit(1);
+    }
+
+    console.log(`\n✅ Reference validation complete (${totalReferences} references, ${totalSkipped} skipped)`);
   });
 
 // Compare command

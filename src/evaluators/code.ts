@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { Assertion, Feedback, ToolCall } from "../types.js";
 
 const execAsync = promisify(exec);
+let warnedToolCallSequence = false;
 
 /**
  * Helper to create properly structured Feedback objects.
@@ -108,6 +109,12 @@ async function evaluateAssertion(
       return evaluateSecurity(sandboxPath, assertion.paths, weight);
 
     case "tool_call_sequence":
+      if (!warnedToolCallSequence) {
+        console.warn(
+          "⚠️  tool_call_sequence is deprecated. Prefer outcome-based assertions or rubric grading instead."
+        );
+        warnedToolCallSequence = true;
+      }
       return evaluateToolSequence(assertion.sequence, toolCalls, assertion.strict ?? false, weight);
 
     case "performance":

@@ -35,6 +35,19 @@ opencode-eval run evals/ --trials 3
 opencode-eval run evals/ --trials 3 --pass-criteria all
 ```
 
+### Validating Reference Outputs
+
+```bash
+# Validate reference outputs in evals
+opencode-eval validate-references evals/
+
+# Include LLM judge evaluators
+opencode-eval validate-references evals/ --include-llm
+
+# Fail if any eval lacks references
+opencode-eval validate-references evals/ --require-references
+```
+
 ### Comparing Results
 
 ```bash
@@ -499,8 +512,10 @@ For nuanced evaluation, use structured rubrics instead of simple pass/fail crite
 | `no_lint_errors` | Run ESLint and check for errors |
 | `no_type_errors` | Run TypeScript compiler and check for type errors |
 | `no_security_issues` | Scan for hardcoded secrets, API keys, etc. |
-| `tool_call_sequence` | Verify tools were called in a specific order |
+| `tool_call_sequence` | Deprecated: avoid sequencing tools; use outcome-based assertions instead |
 | `performance` | Check metrics like tool call count against thresholds |
+
+`tool_call_sequence` is deprecated because it rewards specific tool ordering instead of results. Prefer assertions that validate end state (files, exit codes, performance) or rubric-based grading.
 
 ### Weighted Assertions
 
@@ -513,7 +528,7 @@ All assertions support an optional `weight` parameter for partial credit:
     { "type": "file_exists", "path": "src/index.ts", "weight": 1.0 },
     { "type": "no_type_errors", "weight": 2.0 },
     { "type": "no_lint_errors", "weight": 0.5 },
-    { "type": "tool_call_sequence", "sequence": ["read", "edit", "bash"], "weight": 1.0 },
+    { "type": "file_contains", "path": "README.md", "pattern": "Usage", "weight": 1.0 },
     { "type": "performance", "metric": "tool_calls", "max": 10, "weight": 0.5 }
   ]
 }
